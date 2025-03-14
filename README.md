@@ -16,22 +16,19 @@ A high-performance, real-time AI speech-to-speech system with voice cloning capa
 
 https://namand.in/voice-ai
 
-## Local Voice Chat
-
-Open `index.html` in browser to use voice chat
 
 ## Available Implementations
 
 - **STT**:
   - Whisper Jax
-  - Huggingface Whisper
   - faster-whisper
   - whisper with vllm
   - sensevoice
+  - HF Transformers Whisper
 
 - **Chat**:
   - VLLM
-  - Transformers
+  - HF Transformers
   - Groq
 
 - **TTS**:
@@ -89,44 +86,8 @@ python voiceai/launcher.py --combined-logs
 python voiceai/launcher.py --services server chat tts
 ```
 
-# Environment Variables
-```
-
-// if using custom xtts model for tts, default xtts is automatically downloade if XTTS_MODEL_PATH is not set
-XTTS_MODEL_PATH="path/to/xtts/model"
-
-// if using external tts, set to true
-USE_EXTERNAL_TTS=False
-
-// if using external chat, set to true
-USE_EXTERNAL_CHAT=True
-
-// external chat provider, if any
-EXTERNAL_CHAT_PROVIDER="groq"
-// external tts provider, if any
-EXTERNAL_TTS_PROVIDER="elevenlabs"
-
-// all services in a single process, set to false for multi process mode where every service will have their own endpoints
-FAST_MODE=True
-
-// if using whisper jax for stt, specifices the fraction of gpu memory to preallocate
-XLA_PYTHON_CLIENT_MEM_FRACTION=0.2
-
-// if using groq for llm
-GROQ_API_KEY="your_groq_api_key"
-
-// required for downloading some models from huggingface
-HUGGINGFACE_API_KEY="your_huggingface_api_key"
-
-// if using elevenlabs for tts
-ELEVENLABS_API_KEY="your_elevenlabs_api_key"
-
-// if using cartesia for tts
-CARTESIA_API_KEY="your_cartesia_api_key"
-
-```
-
-Open `index.html` in browser after starting the server to use voice chat
+### Launch Voice chat interface
+Open `localhost:8000/voiceai.html` in browser after starting the server to use voice chat
 
 ## Component Customization
 
@@ -186,9 +147,9 @@ To run in multi process mode, set `FAST_MODE=False` which will run each service 
 
 ### Audio Format Specifications
 
-- **Input Audio**: Raw PCM bytes, Sample Rate: 16kHz, Bit Depth: 16-bit, Channels: Mono, No headers or containers
+- **Input Audio**: Raw PCM bytes, Sample Rate: 16kHz
 
-- **Output Audio**: Raw PCM bytes, Sample Rate: 24kHz, Bit Depth: 32-bit float, Channels: Mono, Streamed in chunks for real-time playback
+- **Output Audio**: Raw PCM bytes, Sample Rate: 24kHz, Streamed in chunks for real-time playback
 
 ## Direct Transcript for Chat + TTS
 - send `transcript` message type to the server with the transcript to chat and tts to respond
@@ -249,4 +210,41 @@ TTS Time to first chunk (with DeepSpeed): 170ms
 - DeepSpeed - DeepSpeed requires cuDNN and cuBLAS. If you have trouble installing DeepSpeed, make sure you have the latest version of CUDA and cuDNN installed. If you still face issues, then u can skip DeepSpeed and set `use_deepspeed=False` in `local_tts.py`
 - VLLM - Adjust `gpu_memory_utilization` according to your GPU memory and the model size. This tells vllm to allocate the defined fraction of the GPU memory.
 
+
+# Environment Variables
+```
+
+// if using custom xtts model for tts, default xtts is automatically downloade if XTTS_MODEL_PATH is not set
+XTTS_MODEL_PATH="path/to/xtts/model"
+
+// if using external tts, set to true
+USE_EXTERNAL_TTS=False
+
+// if using external chat, set to true
+USE_EXTERNAL_CHAT=True
+
+// external chat provider, if any
+EXTERNAL_CHAT_PROVIDER="groq"
+// external tts provider, if any
+EXTERNAL_TTS_PROVIDER="elevenlabs"
+
+// all services in a single process, set to false for multi process mode where every service will have their own endpoints
+FAST_MODE=True
+
+// if using whisper jax for stt, specifices the fraction of gpu memory to preallocate
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.2
+
+// if using groq for llm
+GROQ_API_KEY="your_groq_api_key"
+
+// required for downloading some models from huggingface
+HUGGINGFACE_API_KEY="your_huggingface_api_key"
+
+// if using elevenlabs for tts
+ELEVENLABS_API_KEY="your_elevenlabs_api_key"
+
+// if using cartesia for tts
+CARTESIA_API_KEY="your_cartesia_api_key"
+
+```
 
