@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 import time
-from vocal.config.agents_config import agent_manager
+from voiceai.config.agents_config import agent_manager
 import os
 from .base_stt import BaseSTT
 from typing import Optional

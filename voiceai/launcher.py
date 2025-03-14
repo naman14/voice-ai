@@ -22,22 +22,22 @@ class ServiceLauncher:
         self.fast_mode = os.environ.get('FAST_MODE', '').lower() in ('true', '1', 'yes')
         self.services: Dict[str, dict] = {
             'server': {
-                'command': ['uvicorn', 'vocal.server:app', '--host', '0.0.0.0', '--port', '8000', '--log-level', 'info', '--access-log'],
+                'command': ['uvicorn', 'voiceai.server:app', '--host', '0.0.0.0', '--port', '8000', '--log-level', 'info', '--access-log'],
                 'process': None,
                 'required': True
             },
             'stt': {
-                'command': ['uvicorn', 'vocal.stt.stt:app', '--host', '0.0.0.0', '--port', '8001', '--log-level', 'info', '--access-log'],
+                'command': ['uvicorn', 'voiceai.stt.stt:app', '--host', '0.0.0.0', '--port', '8001', '--log-level', 'info', '--access-log'],
                 'process': None,
                 'required': not self.fast_mode
             },
             'chat': {
-                'command': ['uvicorn', 'vocal.chat.chat:app', '--host', '0.0.0.0', '--port', '8002', '--log-level', 'info', '--access-log'],
+                'command': ['uvicorn', 'voiceai.chat.chat:app', '--host', '0.0.0.0', '--port', '8002', '--log-level', 'info', '--access-log'],
                 'process': None,
                 'required': not self.fast_mode
             },
             'tts': {
-                'command': ['uvicorn', 'vocal.tts.tts:app', '--host', '0.0.0.0', '--port', '8003', '--log-level', 'info', '--access-log'],
+                'command': ['uvicorn', 'voiceai.tts.tts:app', '--host', '0.0.0.0', '--port', '8003', '--log-level', 'info', '--access-log'],
                 'process': None,
                 'required': not self.fast_mode
             }

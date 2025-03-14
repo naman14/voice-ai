@@ -6,7 +6,7 @@ import os
 import time
 from typing import Dict, List, Optional
 from fastapi.background import BackgroundTasks
-from vocal.config.agents_config import agent_manager
+from voiceai.config.agents_config import agent_manager
 from typing import AsyncGenerator
 from dotenv import load_dotenv
 from .base_tts import BaseTTS

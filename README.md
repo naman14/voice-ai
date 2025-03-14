@@ -1,4 +1,4 @@
-# Vocal.fun AI Node
+# voiceai.fun AI Node
 
 A high-performance, real-time AI speech-to-speech system with voice cloning capabilities. Features modular components for speech recognition, text generation, and speech synthesis. Designed for sub-500ms latency and unrestricted conversations through self-hosted models.
 
@@ -84,8 +84,8 @@ Client                    Server                  Services
 
 ```bash
 # Clone the repository
-git clone 'https://github.com/vocal-fun/vocal-fun-ai-node'
-cd vocal-fun-ai-node
+git clone 'https://github.com/voiceai-fun/voiceai-fun-ai-node'
+cd voiceai-fun-ai-node
 
 # Install dependencies
 pip install -r requirements.txt
@@ -127,7 +127,7 @@ python launcher.py --services server chat tts
    - Pre-trained model optimized for voice cloning
    - Real-time streaming and voice adaptation
    - Low latency (100-200ms)
-   - [Download Model](https://github.com/vocal-fun/vocal-fun-xtts)
+   - [Download Model](https://github.com/voiceai-fun/voiceai-fun-xtts)
 
 3. ElevenLabs
    - Set `ELEVENLABS_API_KEY`

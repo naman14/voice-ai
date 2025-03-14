@@ -5,7 +5,7 @@ import json
 import os
 from datetime import datetime
 from typing import Optional, List
-from vocal.utils.speechdetector import AudioSpeechDetector
+from voiceai.utils.speechdetector import AudioSpeechDetector
 import asyncio
 from fastapi import WebSocket
 

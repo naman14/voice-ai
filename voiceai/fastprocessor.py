@@ -6,11 +6,11 @@ from datetime import datetime
 from typing import Optional, List
 import asyncio
 from fastapi import WebSocket
-from vocal.utils.speechdetector import AudioSpeechDetector
-from vocal.config.agents_config import agent_manager
+from voiceai.utils.speechdetector import AudioSpeechDetector
+from voiceai.config.agents_config import agent_manager
 import time
 import io
-from vocal.utils.metrics import metrics_manager
+from voiceai.utils.metrics import metrics_manager
 
 class FastProcessor:
     def __init__(self, session_id: str, config_id: str, allow_interruptions: bool = False):
@@ -30,9 +30,9 @@ class FastProcessor:
         self.should_interrupt = False
 
         # Lazy import services only when FastProcessor is actually used
-        from vocal.stt.stt import stt_instance
-        from vocal.chat.chat import chat_instance
-        from vocal.tts.tts import tts_instance
+        from voiceai.stt.stt import stt_instance
+        from voiceai.chat.chat import chat_instance
+        from voiceai.tts.tts import tts_instance
         
         # Initialize services directly
         self.stt_service = stt_instance

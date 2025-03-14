@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from .base_llm import BaseLLM
 from .conversation import ConversationManager, ConversationFormatter
 from fastapi import APIRouter
-from vocal.config.agents_config import agent_manager
+from voiceai.config.agents_config import agent_manager
 import uuid
 from typing import AsyncGenerator, List, Dict
 

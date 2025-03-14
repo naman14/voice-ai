@@ -5,7 +5,7 @@ from fastapi import Query
 
 import json
 from typing import Dict, Optional, Union
-from vocal.config.agents_config import agent_manager
+from voiceai.config.agents_config import agent_manager
 from dotenv import load_dotenv
 import os
 
@@ -80,8 +80,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         session.config_id = config["configId"]
         
         # Create appropriate processor based on mode
-        from vocal.processor import AudioProcessor
-        from vocal.fastprocessor import FastProcessor
+        from voiceai.processor import AudioProcessor
+        from voiceai.fastprocessor import FastProcessor
         ProcessorClass = FastProcessor if fast_mode else AudioProcessor
         session.processor = ProcessorClass(session_id, config["configId"], session.allow_interruptions)
 
@@ -129,23 +129,23 @@ if fast_mode:
     print("Initializing services")
 
     print("Initializing Chat")
-    import vocal.chat.chat
+    import voiceai.chat.chat
     print("Initializing TTS")
-    import vocal.tts.tts
+    import voiceai.tts.tts
     print("Initializing STT")
-    import vocal.stt.stt
+    import voiceai.stt.stt
 
-    stt_instance = vocal.stt.stt.stt_instance
-    chat_instance = vocal.chat.chat.chat_instance
-    tts_instance = vocal.tts.tts.tts_instance
+    stt_instance = voiceai.stt.stt.stt_instance
+    chat_instance = voiceai.chat.chat.chat_instance
+    tts_instance = voiceai.tts.tts.tts_instance
 
     print("Services initialized")
 
     # start individual tts and chat endpoints
     # if not in fast mode, the tts server will be started as a separate process
 
-    from vocal.chat.chat import chat_router
-    from vocal.tts.tts import tts_router
+    from voiceai.chat.chat import chat_router
+    from voiceai.tts.tts import tts_router
 
     app.include_router(chat_router)
     app.include_router(tts_router)
