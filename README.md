@@ -9,19 +9,47 @@ A high-performance, real-time AI speech-to-speech system with voice cloning capa
 - **Self-hosted Models**: Complete control over the conversation flow without external restrictions
 - **WebSocket Streaming**: Real-time audio streaming for instant responses
 - **Real-time Voice Cloning**: Clone voices from short audio samples with customizable personalities
-- **Scalable**: Designed for high throughput and low latency while also best for local deployment
 - **Interruption Support**: Allow the user to interrupt the agent at any time and start a new turn of conversation
+- **Scalable**: Designed for high throughput while also best for local deployment on self machine
 
-## Demo
+## Online Demo
 
 https://namand.in/voice-ai
 
+## Local Voice Chat
+
+Open `index.html` in browser to use voice chat
+
+## Available Implementations
+
+- **STT**:
+  - Whisper Jax
+  - Huggingface Whisper
+  - faster-whisper
+  - whisper with vllm
+  - sensevoice
+
+- **Chat**:
+  - VLLM
+  - Transformers
+  - Groq
+
+- **TTS**:
+  - XTTS
+  - ElevenLabs
+  - Cartesia
+
+- **Multi Modal**:
+  - Ultravox (Combined STT and Chat in 1 model)
+
+- **Coming Soon**:
+   - Sesame csm 1B conversational speech mdoel
 
 ## Quick Start
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.10+
 - CUDA-compatible GPU for best performance
 
 ### Installation
@@ -31,12 +59,19 @@ https://namand.in/voice-ai
 git clone 'https://github.com/naman14/voice-ai'
 cd voice-ai
 
+# create a virtual environment
+python -m venv venv
+source venv/bin/activate
+
+# Install whisper-jax separately (if using whisper jax for stt)
+pip install git+https://github.com/naman14/whisper-jax.git
+
 # Install dependencies
-pip install .
+pip install -r requirements.txt
 
 # Set up environment variables
 cp .env.example .env
-# Edit .env with your API keys and model paths
+# Edit .env with your configuration
 ```
 
 # Environment Variables
@@ -81,11 +116,13 @@ Download the [XTTS-v2](https://huggingface.co/coqui/XTTS-v2) model for tts and u
 
 ```bash
 # Start all services with combined logging
-python launcher.py --combined-logs
+python voiceai/launcher.py --combined-logs
 
 # Start specific services
-python launcher.py --services server chat tts
+python voiceai/launcher.py --services server chat tts
 ```
+
+Open `index.html` in browser after starting the server to use voice chat
 
 ## Component Customization
 
@@ -105,6 +142,7 @@ python launcher.py --services server chat tts
 - `local_llm.py` Self hosted model through Huggingface Transformers
 - `external/groq_llm.py` Groq chat implementation
 - base class - `chat.py` - change the implementation class here
+- All implementations support both sync and streaming generations
 
 ### Text-to-Speech Options (All are real time streaming)
 
@@ -112,6 +150,7 @@ python launcher.py --services server chat tts
 - `external/elevenlabs_tts.py` ElevenLabs TTS
 - `external/cartesia_tts.py` Cartesia TTS
 - base class - `tts.py` - change the implementation class here
+- All implementations support both sync and streaming generations
 
 ## Combined STT and LLM
 - `combined_stt_llm.py` Combined STT and LLM implementation through `Ultravox` multimodal model
@@ -167,7 +206,7 @@ When connecting to the server socket, send config json with the following fields
 - `session_id`: The id of the session to use // conversation context is managed on a per session_id basis
 - `systemPrompt`: system prompt for the chat model
 - `agentName`: name of the agent
-- `voiceSampleUrl`: The voice samples to use for voice cloning // list of file paths
+- `voiceSampleUrl`: The voice samples to use for voice cloning // can be local or remote, automatically downloads and converts to wav format if remote url
 - `language`: language
 - `speed`: speed of the speech
 - `allowInterruptions`: allow the user to interrupt the agent at any time and start a new turn of conversation
@@ -190,8 +229,7 @@ When connecting to the server socket, send config json with the following fields
 
 ## Latency Measurements
 - latency measurements are logged in console
-- `metrics.py` contains useful helpers for measuring latency of the system and tracks the latency of every system and overall latency
-- `fastprocessor.py` tracks the latency of every system
+- `metrics.py` and `fastprocessor.py` contains useful helpers for measuring latency of the system and tracks the latency of every system and overall latency
 
 
 ### Cloud L4 GPU Latency
@@ -200,4 +238,10 @@ Whisper Jax STT: 80ms
 VLLM Local Chat Llama 3.2 3b: 500ms
 TTS Time to first chunk (with DeepSpeed): 170ms
 ```
+
+### Troubleshooting
+
+- DeepSpeed - DeepSpeed requires cuDNN and cuBLAS. If you have trouble installing DeepSpeed, make sure you have the latest version of CUDA and cuDNN installed. If you still face issues, then u can skip DeepSpeed and set `use_deepspeed=False` in `local_tts.py`
+- VLLM - Adjust `gpu_memory_utilization` according to your GPU memory and the model size. This tells vllm to allocate the defined fraction of the GPU memory.
+
 
