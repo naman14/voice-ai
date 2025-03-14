@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>voiceai Fun</title>
+    <title>Voice AI</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -240,7 +240,7 @@
         }
 
         function connect() {
-            socket = new WebSocket(`ws://localhost:8000/ws/${sessionId}`);
+            socket = new WebSocket(`ws://34.93.194.16:8000/ws/${sessionId}`);
 
             socket.onopen = () => {
                 isConnected = true;
