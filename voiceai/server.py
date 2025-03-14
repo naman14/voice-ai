@@ -26,7 +26,6 @@ app.add_middleware(
 class AudioSession:
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self.agent_id = ""
         self.config_id = ""
         self.websocket: Optional[WebSocket] = None
         self.processor = None
@@ -66,7 +65,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             print("Error: Config is not a dictionary")
             return
             
-        required_fields = ["configId", "agentId", "agentName"]
+        required_fields = ["configId"]
         if missing_fields := [field for field in required_fields if field not in config]:
             print(f"Error: Missing required fields in config: {missing_fields}")
             return
@@ -76,7 +75,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
         await agent_manager.add_agent_config(config)
         
-        session.agent_id = config["agentId"]
         session.config_id = config["configId"]
         
         # Create appropriate processor based on mode
@@ -90,7 +88,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             "session_id": session_id
         })
 
-        print(f"Received agentId: {session.agent_id}, userId: {session.session_id}")
+        print(f"Received configId: {session.config_id}")
         
         # Main message handling loop
         while True:
