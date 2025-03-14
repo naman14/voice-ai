@@ -20,8 +20,10 @@ deepspeed
 accelerate
 # if using vllm implementations
 vllm==0.6.4
+
 # if using sensevoice stt
-funasr
+#funasr
+
 # if using whisper-jax implementation
 # this is a fork of whisper-jax with a dependency issue fix
 # install separately afer requirements.txt
