@@ -63,8 +63,10 @@ cd voice-ai
 python -m venv venv
 source venv/bin/activate
 
-# Install whisper-jax separately (if using whisper jax for stt)
+# Install whisper-jax and jaxlib separately (if using whisper jax for stt)
+# Skip if using other stt implementations
 pip install git+https://github.com/naman14/whisper-jax.git
+pip install -U "jax[cuda12]"
 
 # Install dependencies
 pip install -r requirements.txt
