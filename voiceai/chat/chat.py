@@ -35,6 +35,7 @@ class Chat:
     def __init__(self):
         self.llm: Optional[BaseLLM] = None
         self.conversation_history = []
+        self.device = device
         self._setup_llm()
 
     def _setup_llm(self):
@@ -48,9 +49,12 @@ class Chat:
             else:
                 raise ValueError(f"Unsupported external chat provider: {provider}")
         else:
-            if torch.cuda.is_available():
+            if self.device == "cuda":
                 from .vllm import VLLM
                 self.llm = VLLM()
+            elif self.device == "mps":
+                from .mlx_llm import MLXLLM
+                self.llm = MLXLLM()
             else:
                 from .local_llm import LocalLLM
                 self.llm = LocalLLM()

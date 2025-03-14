@@ -29,6 +29,9 @@ vllm==0.6.4
 # install separately afer requirements.txt
 #git+https://github.com/naman14/whisper-jax.git
 
+#apple silicon
+mlx-lm
+
 #==optional==
 #cartesia
 #elevenlabs
