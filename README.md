@@ -63,11 +63,6 @@ cd voice-ai
 python -m venv venv
 source venv/bin/activate
 
-# Install whisper-jax and jaxlib separately (if using whisper jax for stt)
-# Skip if using other stt implementations
-pip install git+https://github.com/naman14/whisper-jax.git
-pip install -U "jax[cuda12]"
-
 # Install dependencies
 pip install -r requirements.txt
 
@@ -130,10 +125,10 @@ Open `index.html` in browser after starting the server to use voice chat
 ### Speech-to-Text Options
 
 - Default: `whisper_jax.py` Whisper Jax (fastest in my testing)
+-  `sensevoice_stt.py` as fast as whisper jax, though limited language support
 -  `whisper_hf.py` Huggingface Whisper implementation
 -  `whisper_stt.py` faster-whisper implementation
 -  `whisper_vllm.py` vllm implementation, best for high throughput requirements
--  `sensevoice_stt.py` as fast as whisper jax, though limited language support
 
   - base class - `stt.py` - change the implementation class here
 
@@ -160,6 +155,15 @@ Open `index.html` in browser after starting the server to use voice chat
 ## Chat and TTS Interleaving
 - set `self.chat_tts_stream` in `fastprocessor.py` to `True` to interleave chat and tts
 - this will stream the tts response as the chat model is generating the response sentence by sentence
+
+### Whisper Jax Installation
+
+```bash
+pip install git+https://github.com/naman14/whisper-jax.git
+pip install -U "jax[cuda12]"
+# do run this after installing whisper-jax to get correct set dependencies
+pip install -r requirements.txt
+```
 
 ### Speech Detection
 
