@@ -25,7 +25,7 @@ class TTS:
         self.use_external = os.getenv("USE_EXTERNAL_TTS", "False").lower() == "true"
         self.provider = os.getenv("EXTERNAL_TTS_PROVIDER", "").lower()
 
-        print(f"Setting up TTS: use_external: {self.use_external}, provider: {self.provider}")
+        print(f"Setting up TTS: use_external: {self.use_external}")
 
         if self.use_external:
             if self.provider == "cartesia":

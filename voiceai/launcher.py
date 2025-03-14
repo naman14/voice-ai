@@ -7,7 +7,11 @@ import time
 import logging
 from typing import Dict, List
 import os
+import webbrowser
 from dotenv import load_dotenv
+import urllib.request
+import urllib.error
+import socket
 
 # Configure logging
 logging.basicConfig(
@@ -160,6 +164,8 @@ class ServiceLauncher:
             logger.error(f"Failed to start services: {', '.join(failed_services)}")
             self.stop_all()
             sys.exit(1)
+        
+        # Browser will be opened in the monitor_services method after server is fully initialized
 
     def stop_all(self):
         """Stop all services."""
@@ -181,12 +187,36 @@ class ServiceLauncher:
 
     def monitor_services(self):
         """Monitor running services and restart if necessary."""
+        # Open browser after server is fully initialized
+        browser_opened = False
+        import urllib.request
+        import urllib.error
+        import socket
+        
         while self.running:
             for service_name, service in self.services.items():
                 if (service['required'] and service['process'] is not None and 
                     service['process'].poll() is not None):
                     logger.warning(f"{service_name} service died, restarting...")
                     self.start_service(service_name)
+            
+            # Check if server is fully initialized and open browser
+            if not browser_opened and 'server' in self.services and self.services['server']['process'] is not None:
+                # Try to connect to the server to check if it's ready
+                try:
+                    # First check if the port is open
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.settimeout(1)
+                        result = s.connect_ex(('localhost', 8000))
+                        if result == 0:  # Port is open
+                            # Wait a bit more to ensure the application is fully loaded
+                            time.sleep(2)
+                            logger.info("Server is ready, opening browser...")
+                            webbrowser.open('http://localhost:8000/index.html')
+                            browser_opened = True
+                except Exception as e:
+                    logger.error(f"Error checking server status: {str(e)}")
+            
             time.sleep(5)
 
 def main():

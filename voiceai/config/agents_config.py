@@ -88,7 +88,7 @@ class AgentManager:
             return final_path
         
         try:
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(url)[1]) as temp_file:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as response:
                         if response.status == 200:
@@ -101,44 +101,45 @@ class AgentManager:
                             temp_file.flush()
                             
                             try:
-                                print(f"Converting audio file using ffmpeg: {temp_file.name}")
-                                stream = (
-                                    ffmpeg
-                                    .input(temp_file.name)
-                                    .output(
-                                        final_path,
-                                        f='wav',          # Force WAV format
-                                        acodec='pcm_s16le',
-                                        ar=44100,
-                                        ac=1,
-                                        vn=None,          # No video
-                                        loglevel='error'
+                                # Check if the downloaded file is already a WAV file
+                                if url.lower().endswith('.wav'):
+                                    # If it's already WAV, just move the file
+                                    os.rename(temp_file.name, final_path)
+                                    print(f"File is already WAV, moved to: {final_path}")
+                                else:
+                                    # Convert non-WAV files
+                                    print(f"Converting non-WAV file using ffmpeg: {temp_file.name}")
+                                    stream = (
+                                        ffmpeg
+                                        .input(temp_file.name)
+                                        .output(
+                                            final_path,
+                                            f='wav',
+                                            acodec='pcm_s16le',
+                                            ar=44100,
+                                            ac=1,
+                                            vn=None,
+                                            loglevel='error'
+                                        )
                                     )
-                                )
-                                
-                                # Print the ffmpeg command for debugging
-                                print(f"FFmpeg command: {' '.join(stream.compile())}")
-                                
-                                ffmpeg.run(stream, overwrite_output=True, capture_stderr=True)
+                                    
+                                    # Print the ffmpeg command for debugging
+                                    print(f"FFmpeg command: {' '.join(stream.compile())}")
+                                    
+                                    ffmpeg.run(stream, overwrite_output=True, capture_stderr=True)
                                 
                                 if os.path.exists(final_path):
                                     # Add to access times and cleanup if needed
                                     self.voice_sample_access_times[f"{config_id}.wav"] = time.time()
                                     self.cleanup_old_samples()
-                                    print(f"Successfully converted and saved voice sample to: {final_path}")
+                                    print(f"Successfully processed voice sample to: {final_path}")
                                     return final_path
                                 else:
-                                    print("FFmpeg conversion failed - output file not created")
+                                    print("File processing failed - output file not created")
                                     return None
                                     
-                            except ffmpeg.Error as e:
-                                print(f"FFmpeg error: {e.stderr.decode() if e.stderr else str(e)}")
-                                # Print the actual error message
-                                if hasattr(e, 'stderr'):
-                                    print(f"Detailed error: {e.stderr.decode()}")
-                                return None
                             except Exception as e:
-                                print(f"Error converting audio: {str(e)}")
+                                print(f"Error processing audio: {str(e)}")
                                 return None
                             finally:
                                 if os.path.exists(temp_file.name):

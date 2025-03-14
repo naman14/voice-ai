@@ -1,6 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi import Query
 
 import json
@@ -121,6 +122,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     finally:
         print(f"Cleaning up session: {session_id}")
         await manager.disconnect(session_id)
+
+app.mount('/', StaticFiles(directory='./',html=True))
+app.mount('/static', StaticFiles(directory='static',html=True))
 
 if fast_mode:
     # initialize all services

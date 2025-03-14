@@ -27,13 +27,13 @@ class ChatStoppingCriteria(StoppingCriteria):
         return any(stop in decoded for stop in self.stops)
 
 class LocalLLM(BaseLLM):
-    def __init__(self, model_name: str = "meta-llama/Llama-3.2-3B-Instruct"):
+    def __init__(self, model_name: str = "meta-llama/Llama-3.2-1B-Instruct"):
         super().__init__()
         self.model_name = model_name
         self.model = None
         self.tokenizer = None
         self.stopping_criteria = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
 
     def setup(self):
         if self.is_setup:
