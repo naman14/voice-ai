@@ -26,9 +26,11 @@ class VLLM(BaseLLM):
         if self.is_setup:
             return
 
-        # Hugging Face login
-        from huggingface_hub import login
-        login(token=os.getenv('HUGGINGFACE_API_KEY'))
+        hf_token = os.getenv('HUGGINGFACE_API_KEY')
+        if hf_token and hf_token != "":
+            # Hugging Face login
+            from huggingface_hub import login
+            login(token=hf_token)
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name,
