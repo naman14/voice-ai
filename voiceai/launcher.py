@@ -212,7 +212,7 @@ class ServiceLauncher:
                             # Wait a bit more to ensure the application is fully loaded
                             time.sleep(2)
                             logger.info("Server is ready, opening browser...")
-                            webbrowser.open('http://localhost:8000/index.html')
+                            webbrowser.open('http://localhost:8000/voiceai.html')
                             browser_opened = True
                 except Exception as e:
                     logger.error(f"Error checking server status: {str(e)}")
