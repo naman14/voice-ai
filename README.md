@@ -74,6 +74,16 @@ cp .env.example .env
 # Edit .env with your configuration
 ```
 
+### Running the Services
+
+```bash
+# Start all services with combined logging
+python voiceai/launcher.py --combined-logs
+
+# or Start specific services
+python voiceai/launcher.py --services server chat tts
+```
+
 # Environment Variables
 ```
 
@@ -109,17 +119,6 @@ ELEVENLABS_API_KEY="your_elevenlabs_api_key"
 // if using cartesia for tts
 CARTESIA_API_KEY="your_cartesia_api_key"
 
-```
-Download the [XTTS-v2](https://huggingface.co/coqui/XTTS-v2) model for tts and update env path
-
-### Running the Services
-
-```bash
-# Start all services with combined logging
-python voiceai/launcher.py --combined-logs
-
-# Start specific services
-python voiceai/launcher.py --services server chat tts
 ```
 
 Open `index.html` in browser after starting the server to use voice chat
