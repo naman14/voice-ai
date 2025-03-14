@@ -123,7 +123,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         print(f"Cleaning up session: {session_id}")
         await manager.disconnect(session_id)
 
-app.mount('/static', StaticFiles(directory='static',html=True))
+app.mount('/', StaticFiles(directory='./',html=True))
 
 if fast_mode:
     # initialize all services
