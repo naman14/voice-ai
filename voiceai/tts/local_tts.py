@@ -61,9 +61,8 @@ class LocalTTS(BaseTTS):
         
         if cache_key not in self.speaker_latents_cache:
             print("Computing speaker latents...")
-            async with self.tts_lock:  # Using tts_lock instead of xtts_lock
-                gpt_cond_latent, speaker_embedding = self.model.get_conditioning_latents(audio_path=voice_samples)
-                self.speaker_latents_cache[cache_key] = (gpt_cond_latent, speaker_embedding)
+            gpt_cond_latent, speaker_embedding = self.model.get_conditioning_latents(audio_path=voice_samples)
+            self.speaker_latents_cache[cache_key] = (gpt_cond_latent, speaker_embedding)
         else:
             gpt_cond_latent, speaker_embedding = self.speaker_latents_cache[cache_key]
         return gpt_cond_latent, speaker_embedding
@@ -132,4 +131,4 @@ class LocalTTS(BaseTTS):
                     format="pcm_f32le"
                 )
                 chunk_counter += 1
-                await asyncio.sleep(0.01) 
+                # await asyncio.sleep(0.01) 
