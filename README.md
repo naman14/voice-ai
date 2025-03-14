@@ -77,7 +77,7 @@ cp .env.example .env
 # Environment Variables
 ```
 
-// if using xtts for tts, specifices the path to the xtts model
+// if using custom xtts model for tts, default xtts is automatically downloade if XTTS_MODEL_PATH is not set
 XTTS_MODEL_PATH="path/to/xtts/model"
 
 // if using external tts, set to true

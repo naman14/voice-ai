@@ -18,7 +18,7 @@ class WhisperVLLM(BaseSTT):
     def setup(self) -> None:
         """Initialize the Whisper model"""
         print("Loading Whisper model VLLM...")
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.llm = AsyncLLMEngine.from_engine_args(
             AsyncEngineArgs(
                 model="openai/whisper-small",

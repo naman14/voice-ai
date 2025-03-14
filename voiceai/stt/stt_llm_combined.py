@@ -21,7 +21,7 @@ class STTLLMCombined(BaseSTT):
         """Initialize the Whisper model"""
         print("Loading Whisper model VLLM...")
         self.model_name = "fixie-ai/ultravox-v0_5-llama-3_2-1b"
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_name,
             use_fast=True

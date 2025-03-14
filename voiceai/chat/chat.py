@@ -25,7 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
 
 # Initialize conversation manager
 conversation_manager = ConversationManager(max_history=1)
@@ -48,9 +48,12 @@ class Chat:
             else:
                 raise ValueError(f"Unsupported external chat provider: {provider}")
         else:
-            from .vllm import VLLM
-            from .local_llm import LocalLLM
-            self.llm = VLLM()
+            if torch.cuda.is_available():
+                from .vllm import VLLM
+                self.llm = VLLM()
+            else:
+                from .local_llm import LocalLLM
+                self.llm = LocalLLM()
 
         self.setup()
 

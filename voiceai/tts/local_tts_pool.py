@@ -15,7 +15,7 @@ import torchaudio
 
 class LocalTTSPool(BaseTTS):
     def __init__(self, max_gpu_utilization: float = 0.2):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.models: List[Tuple[Xtts, asyncio.Lock, int]] = []
         self.speaker_latents_cache: Dict[str, tuple] = {}
         self.max_gpu_utilization = max_gpu_utilization

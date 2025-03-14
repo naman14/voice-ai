@@ -4,6 +4,7 @@ import numpy as np
 import os
 from typing import Generator, Optional, Dict, AsyncGenerator
 from TTS.api import TTS
+from TTS.utils.manage import ModelManager
 from TTS.tts.models.xtts import Xtts
 from TTS.tts.configs.xtts_config import XttsConfig, XttsAudioConfig, XttsArgs
 import asyncio
@@ -15,7 +16,7 @@ import torchaudio
 
 class LocalTTS(BaseTTS):
     def __init__(self):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.model = None
         self.tts_lock = asyncio.Lock()
         self.speaker_latents_cache: Dict[str, tuple] = {}
@@ -23,8 +24,17 @@ class LocalTTS(BaseTTS):
     def setup(self):
         """Initialize the TTS system"""
        
+       # check if custom xtts model
         xttsPath = os.getenv('XTTS_MODEL_PATH')
-        print("Loading local model...")
+        print("XTTS_MODEL_PATH: " + xttsPath)
+        if xttsPath is None or not os.path.exists(xttsPath):
+            # else download default xtts model
+            print("Downloading default XTTS model...")
+            manager = ModelManager(models_file=TTS.get_models_file_path(), progress_bar=True)
+            model_path, config_path, _ = manager.download_model(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
+            print("Downloaded default XTTS model to: " + str(model_path))
+            xttsPath = str(model_path)
+        print("Loading XTTS model...")
         config = XttsConfig(
             model_args=XttsArgs(
                 input_sample_rate=24000,

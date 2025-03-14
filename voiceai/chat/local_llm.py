@@ -6,14 +6,14 @@ from transformers import (
     AutoTokenizer, 
     StoppingCriteriaList, 
     StoppingCriteria,
-    BitsAndBytesConfig,
-    TextIteratorStreamer
+    BitsAndBytesConfig
 )
+from typing import AsyncGenerator
 import re
 import os
 import time
 from threading import Thread
-from typing import AsyncGenerator
+from transformers import TextIteratorStreamer
 
 class ChatStoppingCriteria(StoppingCriteria):
     def __init__(self, tokenizer, stops=None):
@@ -25,7 +25,6 @@ class ChatStoppingCriteria(StoppingCriteria):
         last_tokens = input_ids[0, -10:].cpu()
         decoded = self.tokenizer.decode(last_tokens)
         return any(stop in decoded for stop in self.stops)
-
 
 class LocalLLM(BaseLLM):
     def __init__(self, model_name: str = "meta-llama/Llama-3.2-3B-Instruct"):
@@ -39,8 +38,8 @@ class LocalLLM(BaseLLM):
     def setup(self):
         if self.is_setup:
             return
-
-        # Huggingface login
+            
+         # Huggingface login
         from huggingface_hub import login
         login(token=os.getenv('HUGGINGFACE_API_KEY'))
 
@@ -49,6 +48,13 @@ class LocalLLM(BaseLLM):
             use_fast=True
         )
 
+        ds_config = {
+            "tensor_parallel": {"tp_size": 1},
+            "dtype": "fp16",
+            "replace_with_kernel_inject": True,
+            "replace_method": "auto"
+        }
+
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -56,36 +62,55 @@ class LocalLLM(BaseLLM):
             bnb_4bit_use_double_quant=True
         )
 
+        
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
             torch_dtype=torch.float16,
             device_map="auto",
+            # quantization_config=bnb_config
         )
 
+        # self.model = deepspeed.init_inference(
+        #     self.model,
+        #     config=ds_config
+        # )
+        
         self.stopping_criteria = StoppingCriteriaList([
             ChatStoppingCriteria(self.tokenizer)
         ])
-
+        
         self.is_setup = True
 
     async def generate(self, prompt: str, **kwargs) -> str:
         if not self.is_setup:
             raise RuntimeError("LLM not initialized")
 
-        formatted_chat = self.tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
-        inputs = self.tokenizer(formatted_chat, return_tensors="pt").to(self.device)
-        outputs = self.model.generate(
-            inputs["input_ids"], 
-            max_new_tokens=kwargs.get("max_new_tokens", 100),
-            temperature=kwargs.get("temperature", 0.7), 
-            repetition_penalty=kwargs.get("repetition_penalty", 1.2), 
-            top_p=kwargs.get("top_p", 0.9), top_k=kwargs.get("top_k", 50),
-            no_repeat_ngram_size=kwargs.get("no_repeat_ngram_size", 3), 
-            use_cache=True, 
-            do_sample=True, 
-            stopping_criteria=self.stopping_criteria)
-        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        chat = prompt
         
+        formatted_chat = self.tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True)
+        inputs = self.tokenizer(formatted_chat, return_tensors="pt").to(self.device)
+        
+        outputs = self.model.generate(
+            **inputs,
+            max_new_tokens=kwargs.get("max_new_tokens", 40),
+            temperature=kwargs.get("temperature", 0.7),
+            top_p=kwargs.get("top_p", 0.9),
+            top_k=kwargs.get("top_k", 50),
+            repetition_penalty=kwargs.get("repetition_penalty", 1.2),
+            no_repeat_ngram_size=kwargs.get("no_repeat_ngram_size", 3),
+            use_cache=True,
+            do_sample=True,
+            pad_token_id=self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else self.tokenizer.eos_token_id,
+            stopping_criteria=self.stopping_criteria
+        )
+        
+        decoded_output = self.tokenizer.decode(outputs[0][inputs['input_ids'].size(1):], skip_special_tokens=True)
+        response = decoded_output
+        
+        # Clean up response
+        response = re.sub(r'^.*?:', '', response).strip()
+        
+        return response
     
     async def generate_stream(self, prompt: str, **kwargs) -> AsyncGenerator[str, None]:
         if not self.is_setup:
@@ -138,7 +163,8 @@ class LocalLLM(BaseLLM):
         tokens_per_second = token_count / total_time if total_time > 0 else 0
         print(f"\nTotal generation time: {total_time:.3f}s")
         print(f"Tokens per second: {tokens_per_second:.2f}")
-
+        
+    
     async def cleanup(self):
         if self.model:
             del self.model
@@ -146,4 +172,4 @@ class LocalLLM(BaseLLM):
             del self.tokenizer
         if self.stopping_criteria:
             del self.stopping_criteria
-        self.is_setup = False
+        self.is_setup = False 

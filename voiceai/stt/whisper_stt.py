@@ -13,7 +13,7 @@ class LocalWhisperSTT(BaseSTT):
     def setup(self) -> None:
         """Initialize the Whisper model"""
         print("Loading Whisper model...")
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.model = WhisperModel(
             "small",
             device="auto",

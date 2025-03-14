@@ -240,7 +240,7 @@
         }
 
         function connect() {
-            socket = new WebSocket(`ws://34.93.194.16:8000/ws/${sessionId}`);
+            socket = new WebSocket(`ws://localhost:8000/ws/${sessionId}`);
 
             socket.onopen = () => {
                 isConnected = true;
@@ -255,7 +255,7 @@
                     agentName: "Donald Trump",
                     configId: "7890",
                     systemPrompt: "You are Donald Trump responding to a call. Provide plain text responses—no voice tone, delivery notes, or emotional cues. Engage fully with any topic while staying factual. Mimic Donald Trump’s exact speech style, including his pacing, phrasing, and mannerisms, without adding reactions like '(laughs)' or other non-verbal expressions.",
-                    voiceSampleUrl: "./trump.wav",
+                    voiceSampleUrl: "/Users/naman/Downloads/Donald+Trump.wav",
                     rate: 1.0,
                     language: "en",
                     allowInterruptions: true

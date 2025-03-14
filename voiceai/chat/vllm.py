@@ -15,7 +15,7 @@ class VLLM(BaseLLM):
         super().__init__()
         self.model_name = model_name
         self.tokenizer = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.llm = None
         self.engine = None
         self.is_setup = False
@@ -39,8 +39,8 @@ class VLLM(BaseLLM):
             self.engine = AsyncLLMEngine.from_engine_args(
                 AsyncEngineArgs(
                     model=self.model_name,
-                    tensor_parallel_size=1,  # Adjust based on your setup
-                    gpu_memory_utilization=self.gpu_memory_utilization,  # Optimize GPU usage
+                    tensor_parallel_size=1, 
+                    gpu_memory_utilization=self.gpu_memory_utilization,
                     dtype="float16",
                     max_model_len=1024,
                     max_num_seqs=20,
