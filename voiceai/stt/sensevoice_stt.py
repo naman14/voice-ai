@@ -8,7 +8,7 @@ from typing import Union
 
 class SenseVoiceSTT(BaseSTT):
     def __init__(self):
-        self.device = None
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.model = None
 
     def setup(self) -> None:
@@ -22,7 +22,7 @@ class SenseVoiceSTT(BaseSTT):
             remote_code="./model.py",    
             vad_model="fsmn-vad",
             vad_kwargs={"max_single_segment_time": 30000},
-            device="cuda:0",
+            device=self.device,
         )
 
     async def transcribe(self, audio_data: Union[bytes, np.ndarray], language: str) -> str:

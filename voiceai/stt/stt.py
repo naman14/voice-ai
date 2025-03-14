@@ -26,18 +26,10 @@ class STT:
         # from .whisper_vllm import WhisperVLLM
         # from .stt_llm_combined import STTLLMCombined
         # from .whisper_hf import WhisperHF
+        # from .sensevoice_stt import SenseVoiceSTT
         
-        # if torch.cuda.is_available():
-        #     from .whisper_jax import WhisperJax
-        #     self.stt = WhisperJax()
-        #     self.setup()
-        # else:
-        #     from .sensevoice_stt import SenseVoiceSTT
-        #     self.stt = SenseVoiceSTT()
-        #     self.setup()
-
-        from .sensevoice_stt import SenseVoiceSTT
-        self.stt = SenseVoiceSTT()
+        from .whisper_jax import WhisperJax
+        self.stt = WhisperJax()
         self.setup()
         
 
