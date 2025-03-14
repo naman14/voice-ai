@@ -9,3 +9,4 @@ logs/
 *.egg-info
 voice_samples/
 active_configs.json
+configs/
