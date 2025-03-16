@@ -19,6 +19,7 @@ app.add_middleware(
 class STT:
     def __init__(self):
         self.stt: Optional[BaseSTT] = None
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self._setup_stt()
 
     def _setup_stt(self):
@@ -28,8 +29,18 @@ class STT:
         # from .whisper_hf import WhisperHF
         # from .sensevoice_stt import SenseVoiceSTT
         
-        from .whisper_jax import WhisperJax
-        self.stt = WhisperJax()
+        if self.device == "cuda":
+            # whisper jax
+            from .whisper_jax import WhisperJax
+            self.stt = WhisperJax()
+        elif self.device == "mps":
+            # mlx whisper
+            from .mlx_stt import MLXSTT
+            self.stt = MLXSTT()
+        else:
+            # faster-whisper
+            from .whisper_stt import LocalWhisperSTT
+            self.stt = LocalWhisperSTT()
         self.setup()
         
 
