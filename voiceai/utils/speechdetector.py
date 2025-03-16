@@ -89,11 +89,11 @@ class AudioSpeechDetector:
                   f"Normalized Energy: {chunk_energy:.6f}, " +
                   f"Threshold: {self.energy_threshold}")
         
+        # Always store the chunk, regardless of energy level
+        self.current_audio_chunks.append(audio_chunk)
+        
         # Check if chunk energy is above threshold (indicating speech)
         if chunk_energy > self.energy_threshold:
-            # Store the chunk
-            self.current_audio_chunks.append(audio_chunk)
-            
             self.last_speech_time = current_time
             self.consecutive_silence_chunks = 0
             self._log("Speech detected in chunk")
@@ -101,14 +101,6 @@ class AudioSpeechDetector:
         
         # Increment consecutive silence chunks
         self.consecutive_silence_chunks += 1
-        
-        # Check max recording duration
-        # if current_time - self.start_recording_time > self.max_recording_duration:
-        #     self._log("Max recording duration reached")
-        #     return {
-        #         "action": "process",
-        #         "reason": "max_duration_reached"
-        #     }
         
         # Check for prolonged silence
         silence_duration = self.consecutive_silence_chunks * (len(audio_chunk) / self.sample_rate)
@@ -119,9 +111,6 @@ class AudioSpeechDetector:
         
         # If silence has persisted beyond max_silence_duration
         if silence_duration > self.max_silence_duration:
-            # Combine audio chunks
-            full_audio = np.concatenate(self.current_audio_chunks) if self.current_audio_chunks else np.array([])
-            
             # Calculate speech duration based on energy
             speech_chunks = [chunk for chunk in self.current_audio_chunks 
                              if self._calculate_normalized_energy(chunk) > self.energy_threshold]
