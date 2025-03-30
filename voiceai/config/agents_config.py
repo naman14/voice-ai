@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import threading
 from dataclasses import dataclass
 import ffmpeg
+import shutil
 
 load_dotenv()
 
@@ -103,9 +104,9 @@ class AgentManager:
                             try:
                                 # Check if the downloaded file is already a WAV file
                                 if url.lower().endswith('.wav'):
-                                    # If it's already WAV, just move the file
-                                    os.rename(temp_file.name, final_path)
-                                    print(f"File is already WAV, moved to: {final_path}")
+                                    # If it's already WAV, copy the file instead of renaming
+                                    shutil.copy2(temp_file.name, final_path)
+                                    print(f"File is already WAV, copied to: {final_path}")
                                 else:
                                     # Convert non-WAV files
                                     print(f"Converting non-WAV file using ffmpeg: {temp_file.name}")
