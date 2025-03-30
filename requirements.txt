@@ -30,8 +30,8 @@ vllm==0.6.4
 #git+https://github.com/naman14/whisper-jax.git
 
 #apple silicon
-mlx-lm
-lightning-whisper-mlx
+# mlx-lm
+# lightning-whisper-mlx
 
 #==optional==
 #cartesia
