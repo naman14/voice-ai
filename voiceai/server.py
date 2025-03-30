@@ -1,6 +1,6 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import Query
 
@@ -123,8 +123,6 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         print(f"Cleaning up session: {session_id}")
         await manager.disconnect(session_id)
 
-app.mount('/', StaticFiles(directory='./',html=True))
-
 if fast_mode:
     # initialize all services
     print("Initializing services")
@@ -152,4 +150,10 @@ if fast_mode:
     app.include_router(tts_router)
 
     print("Chat and TTS routers added")
+
+# Serve voiceai.html at root
+@app.get("/voiceai")
+async def read_root():
+    return FileResponse("voiceai.html")
+
         
