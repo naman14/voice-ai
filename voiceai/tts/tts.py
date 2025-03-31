@@ -190,7 +190,7 @@ async def generate_tts(
         tts_chunk = await tts_instance.generate_speech(text, language, voice_id, voice_samples, speed)
 
         return JSONResponse({
-            "audio": tts_chunk.chunk,
+            "audio": base64.b64encode(tts_chunk.chunk).decode("utf-8"),
             "format": tts_chunk.format,
             "sample_rate": tts_chunk.sample_rate
         })
