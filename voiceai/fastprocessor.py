@@ -3,9 +3,9 @@ import numpy as np
 import json
 import os
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 import asyncio
-from fastapi import WebSocket
+import queue
 from voiceai.utils.speechdetector import AudioSpeechDetector
 from voiceai.utils.debug_utils import save_audio_chunks
 from voiceai.config.agents_config import agent_manager
@@ -14,6 +14,7 @@ import io
 from voiceai.utils.metrics import metrics_manager
 from voiceai.server import AudioSession
 import base64
+from scipy import signal
 
 class FastProcessor:
     def __init__(self, session_id: str, session: AudioSession, config_id: str, allow_interruptions: bool = False):
@@ -22,7 +23,6 @@ class FastProcessor:
         self.audio_chunks: List[np.ndarray] = []
         self.is_speaking = False
         self.is_responding = False
-        self.tts_lock = asyncio.Lock()
         self.current_turn_id = 0
         self.current_metrics = None
         self.metrics = []
@@ -33,6 +33,7 @@ class FastProcessor:
         # Add interruption handling
         self.current_task = None
         self.should_interrupt = False
+    
 
         # Lazy import services only when FastProcessor is actually used
         from voiceai.stt.stt import stt_instance
@@ -63,144 +64,259 @@ class FastProcessor:
         # create metrics
         self.current_metrics = metrics_manager.create_metrics(self.session_id, self.current_turn_id)
 
-
-    async def process_audio_chunk(self, binary_data: bytes, websocket: WebSocket) -> None:
-        """Process incoming audio chunks and handle VAD internally"""
+    async def receive_audio_data(self, binary_data: bytes) -> None:
+        """Process incoming audio data and add to speech detector"""
         if len(binary_data) > 0:
             audio_data = np.frombuffer(binary_data, dtype=np.int16)
             detection_result = self.speech_detector.add_audio_chunk(audio_data)
             
             if detection_result['action'] == 'process':
-                print("New conversation turn started")
+                print("New speech segment detected")
                 
-                self.audio_chunks = detection_result.get('audio_chunks', [])
-
-                # Debug: Save audio chunks to file
-                # save_audio_chunks(self.audio_chunks, self.session_id, self.current_turn_id)
+                audio_chunks = detection_result.get('audio_chunks', [])
                 
-                # notify client that a new conversation turn has started
-                # useful for client to discard any existing queued audio chunks from previous turn
+                # Put the detected speech in the queue for processing
+                self.session.speech_queue.put(audio_chunks)
 
-                if self.allow_interruptions:
-                    await websocket.send_json({
-                        "type": "new_conversation_turn",
-                        "session_id": self.session_id
-                    })
-                    # This is where we've detected a complete speech segment
-                    # If we're currently responding, we should interrupt
-                    if self.is_responding:
-                        print("Interrupting current response...")
-                        self.should_interrupt = True
-                        if self.current_task and not self.current_task.done():
-                            self.current_task.cancel()
+    async def receive_transcript(self, text: str) -> None:
+        """Handle direct transcript input"""
+        if text.strip():
+            self.current_turn_id += 1
+            self.current_metrics = metrics_manager.create_metrics(self.session_id, self.current_turn_id)
+            self.current_metrics.transcription_start_time = time.time()
+            self.current_metrics.transcription_end_time = time.time()
+            self.metrics.append(self.current_metrics)
+            
+            # Process the transcript directly
+            await self.process_text(text, processing_id=None)
 
-                # Create new task for processing
-                self.should_interrupt = False
-                self.current_task = asyncio.create_task(self.process_speech(websocket))
+    async def process_pending(self) -> None:
+        """Process any pending speech segments"""
+        try:
+            print("Processing pending speech segments")
+            # Get the next speech segment to process
+            audio_chunks = self.session.speech_queue.get(block=False)
+            
+            # Notify client that a new conversation turn has started
+            if self.allow_interruptions and self.is_responding:
+                print("Interruption allowed, sending new conversation turn")
+                await self.send_message({
+                    "type": "new_conversation_turn",
+                    "session_id": self.session_id
+                })
+                
+                # if interruptions allowed, we should interrupt the current task and cancel it
+                self.should_interrupt = True
+                if self.current_task and not self.current_task.done():
+                    print(f"Cancelling existing task for session {self.session_id}")
+                    self.current_task.cancel()
+                    try:
+                        await asyncio.wait_for(self.current_task, timeout=0.5)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
+                    
+            else:
+                # if interruptions not allowed, we should ignore the new audio chunks if we are currently responding
+                if self.is_responding:
+                    return
+           
+            processing_id = time.time()  # Use timestamp as unique ID
+            self.current_processing_id = processing_id
+            self.is_responding = True
+            self.should_interrupt = False
+            
+            # Create a new task for the thread processing
+            self.current_task = asyncio.create_task(
+                asyncio.to_thread(
+                    self._process_speech_in_thread, 
+                    audio_chunks, 
+                    processing_id
+                ),
+                name=f"process_thread_{self.session_id}"
+            )
+            
+            # Mark the queue task as done
+            self.session.speech_queue.task_done()
+        except queue.Empty:
+            # Queue was empty, just continue
+            pass
 
-    async def process_speech(self, websocket: WebSocket) -> None:
+    def _process_speech_in_thread(self, audio_chunks: List[np.ndarray], processing_id: float) -> None:
+        """Process speech in a separate thread to avoid blocking the event loop"""
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Check if we should interrupt before starting
+            if self.should_interrupt or self.current_processing_id != processing_id:
+                print("Thread interrupted before processing started")
+                return
+            
+            # Run the async process_speech method in this thread's event loop
+            loop.run_until_complete(self.process_speech(audio_chunks, processing_id))
+        except Exception as e:
+            print(f"Error in thread processing: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Send error message if not interrupted
+            if not self.should_interrupt and self.current_processing_id == processing_id:
+                loop.run_until_complete(self.send_error(str(e)))
+        finally:
+            # Ensure the responding flag is reset if this is still the current task
+            # This check prevents a cancelled task from resetting the flag for a new task
+            if not self.should_interrupt and self.current_processing_id == processing_id:
+                self.is_responding = False
+            loop.close()
+
+    async def process_speech(self, audio_chunks: List[np.ndarray], processing_id: float) -> None:
         """Handle speech processing and response generation"""
         print("Processing speech...")
         self.current_turn_id += 1
         self.current_metrics = metrics_manager.create_metrics(self.session_id, self.current_turn_id)
         self.current_metrics.silence_detected_time = time.time()
         self.metrics.append(self.current_metrics)
-        self.is_responding = True
+        
         try:
             # Convert audio chunks list to a single numpy array
-            if self.audio_chunks:
-                combined_audio = np.concatenate(self.audio_chunks)
-                self.audio_chunks = []
+            if audio_chunks:
+                combined_audio = np.concatenate(audio_chunks)
                 self.current_metrics.transcription_start_time = time.time()
                 
                 # Check for interruption
-                if self.should_interrupt:
-                    self.is_responding = False
+                if self.should_interrupt or self.current_processing_id != processing_id:
+                    print("Speech processing interrupted before transcription")
                     return
 
                 # Pass the numpy array directly to STT service
                 transcript = await self.stt_service.transcribe(combined_audio, self.language)
                 self.current_metrics.transcription_end_time = time.time()
 
+                # Check for interruption again
+                if self.should_interrupt or self.current_processing_id != processing_id:
+                    print("Speech processing interrupted after transcription")
+                    return
+
                 if not transcript.strip() or "thank you" in transcript.lower():
-                    self.is_responding = False
                     return
                     
-                await self.process_text(transcript, websocket)
+                # Check for interruption again
+                if self.should_interrupt or self.current_processing_id != processing_id:
+                    print("Speech processing interrupted before text processing")
+                    return
+                    
+                await self.process_text(transcript, processing_id=processing_id)
             else:
-                self.is_responding = False
+                print("No audio chunks to process")
 
         except asyncio.CancelledError:
-            self.is_responding = False
-            print("Speech processing was interrupted")
+            print("Speech processing was cancelled")
         except Exception as e:
-            self.is_responding = False
             print(f"Error processing audio: {e}")
-            await self.send_error(websocket, str(e))
+            if not self.should_interrupt and self.current_processing_id == processing_id:
+                await self.send_error(str(e))
 
-    async def process_text(self, text: str, websocket: WebSocket) -> None:
+    async def process_text(self, text: str, processing_id: float = None) -> None:
         """Process text input and generate response"""
         print(f"Processing text: {text}")
-        async with self.tts_lock:
-            self.is_responding = True
-            self.current_metrics.llm_start_time = time.time()
-            try:
-                data = {    
-                    "text": text,
-                    "session_id": self.session_id,
-                    "config_id": self.config_id
-                }
-                
-                if self.chat_tts_stream:
-                    # Buffer to accumulate text
-                    previous_text = ""
-                    current_sentence = ""
-                    is_first_chunk = False
-                    sentence_index = 0
-                    # Stream chat response and process sentences as they come
-                    async for chunk in self.chat_service.generate_stream(data):
-                        # Get only the new content by removing the previous text
-                        if not is_first_chunk:
-                            is_first_chunk = True
-                            self.current_metrics.llm_first_chunk_time = time.time()
-                            
-                        new_content = chunk[len(previous_text):]
-                        current_sentence += new_content
-                        previous_text = chunk
-                        
-                        # Check if we have a complete sentence
-                        if any(current_sentence.rstrip().endswith(p) for p in ['.', '!', '?', '|']):
-                            self.current_metrics.llm_first_sentence_time = time.time()
-                            # Process complete sentence with TTS
-                            await self.stream_tts(current_sentence, websocket, sentence_index=sentence_index)
-                            current_sentence = ""
-                            sentence_index += 1
+        self.current_metrics.llm_start_time = time.time()
         
-                    # Process any remaining text
-                    if current_sentence.strip():
-                        await self.stream_tts(current_sentence, websocket)
-                    
-                    self.current_metrics.llm_end_time = time.time()
-
-                else:
-                    chat_response = await self.chat_service.generate_response(data)
-                    self.current_metrics.llm_end_time = time.time()
-                    await self.stream_tts(chat_response, websocket)
+        # If no processing_id was provided, use the current one
+        if processing_id is None:
+            processing_id = self.current_processing_id
+        
+        try:
+            data = {    
+                "text": text,
+                "session_id": self.session_id,
+                "config_id": self.config_id
+            }
+            
+            # Check for interruption before starting
+            if self.should_interrupt or self.current_processing_id != processing_id:
+                print("Text processing interrupted before starting")
+                return
+            
+            if self.chat_tts_stream:
+                # Buffer to accumulate text
+                previous_text = ""
+                current_sentence = ""
+                is_first_chunk = False
+                sentence_index = 0
                 
-            except Exception as e:
+                async for chunk in self.chat_service.generate_stream(data):
+                    # Check for interruption during streaming
+                    if self.should_interrupt or self.current_processing_id != processing_id:
+                        print("Text processing interrupted during streaming")
+                        break
+                        
+                    if not is_first_chunk:
+                        is_first_chunk = True
+                        self.current_metrics.llm_first_chunk_time = time.time()
+                        
+                    new_content = chunk[len(previous_text):]
+                    current_sentence += new_content
+                    previous_text = chunk
+                    
+                    # Check if we have a complete sentence
+                    if any(current_sentence.rstrip().endswith(p) for p in ['.', '!', '?', '|']):
+                        self.current_metrics.llm_first_sentence_time = time.time()
+                        # Process sentence directly instead of creating a task
+                        if not self.should_interrupt and self.current_processing_id == processing_id:
+                            await self.stream_tts(current_sentence, sentence_index=sentence_index, processing_id=processing_id)
+                        current_sentence = ""
+                        sentence_index += 1
+
+                # Process any remaining text
+                if current_sentence.strip() and not self.should_interrupt and self.current_processing_id == processing_id:
+                    await self.stream_tts(current_sentence, processing_id=processing_id)
+                
+                self.current_metrics.llm_end_time = time.time()
+
+            else:
+                # Check for interruption before generating response
+                if self.should_interrupt or self.current_processing_id != processing_id:
+                    print("Text processing interrupted before response generation")
+                    return
+                    
+                chat_response = await self.chat_service.generate_response(data)
+                self.current_metrics.llm_end_time = time.time()
+                
+                # Check for interruption after generating response
+                if self.should_interrupt or self.current_processing_id != processing_id:
+                    print("Text processing interrupted after response generation")
+                    return
+                
+                # Process TTS directly instead of creating a task
+                await self.stream_tts(chat_response, processing_id=processing_id)
+            
+        except Exception as e:
+            if not self.should_interrupt and self.current_processing_id == processing_id:
                 self.is_responding = False
                 print(f"Error processing text: {e}")
-                await self.send_error(websocket, str(e))
+                await self.send_error(str(e))
 
-    async def stream_tts(self, text: str, websocket: WebSocket, sentence_index: int = 0) -> None:
+    async def stream_tts(self, text: str, sentence_index: int = 0, processing_id: float = None) -> None:
         """Stream TTS audio directly"""
+        # If no processing_id was provided, use the current one
+        if processing_id is None:
+            processing_id = self.current_processing_id
+        
         try:
+            # Check for interruption before starting
+            if self.should_interrupt or self.current_processing_id != processing_id:
+                print("TTS streaming interrupted before starting")
+                return
+            
             self.current_metrics.tts_start_time = time.time()
             voice_id = self.tts_service.get_voice_id(self.config_id)
             is_first_chunk = False
+            
             async for chunk in await self.tts_service.generate_speech_stream(text, self.language, voice_id, self.voice_samples, self.speed):
-                # Check for interruption
-                if self.should_interrupt:
+                # Check for interruption during streaming
+                if self.should_interrupt or self.current_processing_id != processing_id:
+                    print("TTS streaming interrupted during generation")
                     break
 
                 if not is_first_chunk and sentence_index == 0:
@@ -208,46 +324,57 @@ class FastProcessor:
                     is_first_chunk = True
                     self.current_metrics.log_metrics()
 
-                await self.send_audio_chunk(websocket, chunk.chunk, chunk.format, chunk.sample_rate)
+                await self.send_audio_chunk(chunk.chunk, chunk.format, chunk.sample_rate)
                 
-            if not self.should_interrupt:
-                await websocket.send_json({
+            # Only send end message if not interrupted
+            if not self.should_interrupt and self.current_processing_id == processing_id:
+                await self.send_message({
                     "type": "tts_stream_end",
                     "session_id": self.session_id
                 })
         except asyncio.CancelledError:
-            print("TTS streaming was interrupted")
+            print("TTS streaming was cancelled")
         except Exception as e:
-            print(f"Error in TTS streaming: {e}")
-            await self.send_error(websocket, str(e))
+            if not self.should_interrupt and self.current_processing_id == processing_id:
+                print(f"Error in TTS streaming: {e}")
+                await self.send_error(str(e))
 
-    async def handle_client_message(self, message_type: str, websocket: WebSocket) -> None:
+    async def handle_client_message(self, message_type: str) -> None:
         """Handle client control messages"""
         if message_type == "speech_start":
             self.is_speaking = True
             self.audio_chunks = []
         elif message_type == "speech_end":
             self.is_speaking = False
-            if self.audio_chunks:
-                await self.process_speech(websocket)
 
-    async def send_error(self, websocket: WebSocket, error: str) -> None:
+    async def send_message(self, message: Any) -> None:
+        """Send a message to the client via the outbound queue"""
+        if hasattr(self.session, 'outbound_queue'):
+            try:
+                self.session.outbound_queue.put(message)
+            except Exception as e:
+                print(f"Error sending message to queue: {e}")
+
+    async def send_error(self, error: str) -> None:
         """Send error message to client"""
-        try:
-            await websocket.send_json({
-                "type": "error",
-                "error": error,
-                "session_id": self.session_id
-            })
-        except RuntimeError:
-            pass  # WebSocket is closed
+        await self.send_message({
+            "type": "error",
+            "error": error,
+            "session_id": self.session_id
+        })
 
     async def cleanup(self):
         """Clean up any resources"""
-        pass  # No cleanup needed for direct calls 
+        self.should_interrupt = True
+        if self.current_task and not self.current_task.done():
+            self.current_task.cancel()
+            try:
+                await self.current_task
+            except asyncio.CancelledError:
+                pass
 
-
-    async def send_audio_chunk(self, websocket, chunk, format, sample_rate):
+    async def send_audio_chunk(self, chunk, format, sample_rate):
+        """Send audio chunk to the client"""
         session = self.session
         if not session:
             print("No session found, returning")
@@ -278,26 +405,54 @@ class FastProcessor:
                 
                 # Read encoded Opus data
                 opus_data = session.opus_stream_outbound.read_bytes()
-                print(f"Opus data size: {len(opus_data) if opus_data else 0} bytes")
                 
                 if opus_data:
-                    # Send as binary WebSocket message
-                    print("Sending Opus data to client")
-                    await websocket.send_bytes(opus_data)
+                    # Send as binary WebSocket message via the outbound queue
+                    await self.send_message(opus_data)
                 
             except Exception as e:
                 print(f"Error in Opus processing: {str(e)}")
         else:
-            # Original PCM handling
+            # PCM handling
             data = {
-                "type": "audio_chunk",
-                "chunk": base64.b64encode(chunk).decode("utf-8"),
-                "format": format,
-                "sample_rate": sample_rate,
-                "timestamp": time.time()
-            }
-            await websocket.send_json({
                 "type": "tts_stream",
-                "data": data,
+                "data": {
+                    "type": "audio_chunk",
+                    "chunk": base64.b64encode(chunk).decode("utf-8"),
+                    "format": format,
+                    "sample_rate": sample_rate,
+                    "timestamp": time.time()
+                },
                 "session_id": self.session_id
-            })
+            }
+            await self.send_message(data)
+
+    async def receive_raw_audio(self, binary_data: bytes) -> None:
+        """Process incoming raw audio data"""
+        if len(binary_data) == 0:
+            return
+        
+        session = self.session
+        
+        # Handle Opus decoding if needed
+        if session.audio_format == "opus" and session.opus_stream_inbound:
+            # Append bytes to the Opus stream
+            session.opus_stream_inbound.append_bytes(binary_data)
+            
+            # Read decoded PCM data
+            pcm_data = session.opus_stream_inbound.read_pcm()
+            if pcm_data is not None and len(pcm_data) > 0:
+                # Convert to int16
+                pcm_int16 = (pcm_data * 32767).astype(np.int16)
+                
+                # Resample from 24kHz to 16kHz
+                resampled_audio = signal.resample_poly(pcm_int16, 2, 3)  # 24000 * (2/3) = 16000
+                
+                # Convert back to bytes
+                pcm_bytes = resampled_audio.astype(np.int16).tobytes()
+                
+                # Process the PCM data
+                await self.receive_audio_data(pcm_bytes)
+        else:
+            # For PCM, pass directly to the audio data processor
+            await self.receive_audio_data(binary_data)

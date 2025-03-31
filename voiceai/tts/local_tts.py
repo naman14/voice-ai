@@ -13,12 +13,13 @@ from .base_tts import TTSChunk
 import time
 import base64
 import torchaudio
+import threading
 
 class LocalTTS(BaseTTS):
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.model = None
-        self.tts_lock = asyncio.Lock()
+        self.tts_lock = threading.Lock()
         self.speaker_latents_cache: Dict[str, tuple] = {}
         
     def setup(self):
@@ -76,7 +77,7 @@ class LocalTTS(BaseTTS):
         print("Starting full audio generation...")
         t0 = time.time()
         
-        async with self.tts_lock:
+        with self.tts_lock:
             # Generate the complete audio
             audio = self.model.inference(
                 text,
@@ -106,7 +107,8 @@ class LocalTTS(BaseTTS):
         t0 = time.time()
 
         chunk_counter = 0
-        async with self.tts_lock:
+        
+        with self.tts_lock:
             for chunk in self.model.inference_stream(
                 text,
                 language,
@@ -128,5 +130,4 @@ class LocalTTS(BaseTTS):
                     sample_rate=24000,
                     format="pcm"
                 )
-                chunk_counter += 1
-                # await asyncio.sleep(0.01) 
+                chunk_counter += 1 

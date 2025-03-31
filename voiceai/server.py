@@ -4,14 +4,14 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import json
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, List, Any
 from voiceai.config.agents_config import agent_manager
 from dotenv import load_dotenv
 import os
 import numpy as np
-from scipy import signal
+import asyncio
+import queue  # Add this import for simple queues
 
-# Add imports for Opus codec handling using sphn
 try:
     import sphn
     OPUS_AVAILABLE = True
@@ -41,12 +41,25 @@ class AudioSession:
         self.allow_interruptions = False
         self.audio_format = "pcm"  # Default to PCM
         
+         # Processing queue for speech segments
+        self.speech_queue = queue.Queue()
+        # Outbound queue for messages to the client
+        self.outbound_queue = queue.Queue()
+        
         # Initialize Opus streams if available
         self.opus_stream_inbound = None
         self.opus_stream_outbound = None
         if OPUS_AVAILABLE:
             self.opus_stream_inbound = sphn.OpusStreamReader(24000) 
             self.opus_stream_outbound = sphn.OpusStreamWriter(24000)
+        
+        # Tasks for the parallel loops
+        self.receive_task = None
+        self.process_task = None
+        self.send_task = None
+        
+        # Control flags
+        self.running = False
 
 class ConnectionManager:
     def __init__(self):
@@ -62,11 +75,152 @@ class ConnectionManager:
     async def disconnect(self, session_id: str):
         if session_id in self.active_sessions:
             session = self.active_sessions[session_id]
+            
+            # Mark session as not running to stop all loops
+            session.running = False
+            
+            # Cancel all tasks with proper error handling
+            for task_name, task in [
+                ("receive", session.receive_task), 
+                ("process", session.process_task), 
+                ("send", session.send_task)
+            ]:
+                if task and not task.done():
+                    print(f"Cancelling {task_name} task for session {session_id}")
+                    task.cancel()
+                    try:
+                        # Wait for the task to be cancelled with a timeout
+                        await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        print(f"Timeout waiting for {task_name} task to cancel")
+                    except asyncio.CancelledError:
+                        print(f"{task_name.capitalize()} task cancelled successfully")
+                    except Exception as e:
+                        print(f"Error cancelling {task_name} task: {e}")
+            
+            # Clean up processor resources
             if session.processor:
-                await session.processor.cleanup()
+                try:
+                    await session.processor.cleanup()
+                except Exception as e:
+                    print(f"Error cleaning up processor: {e}")
+            
+            # Clean up Opus streams if needed
+            if OPUS_AVAILABLE:
+                if session.opus_stream_inbound:
+                    session.opus_stream_inbound = None
+                if session.opus_stream_outbound:
+                    session.opus_stream_outbound = None
+            
+            # Remove the session
             del self.active_sessions[session_id]
+            print(f"Session {session_id} successfully removed")
 
 manager = ConnectionManager()
+
+async def receive_loop(session: AudioSession, websocket: WebSocket):
+    """Loop that receives audio data from the client"""
+    try:
+        print(f"Starting receive loop for session {session.session_id}")
+        while session.running:
+            try:
+                message = await websocket.receive()
+                
+                if message["type"] == "websocket.disconnect":
+                    print(f"Received disconnect message in receive loop for session {session.session_id}")
+                    session.running = False
+                    break
+                    
+                if message["type"] == "websocket.receive":
+                    if "bytes" in message:
+                        audio_data = message["bytes"]
+                        
+                        # For both Opus and PCM, just pass the raw data to the processor
+                        # The processor will handle it appropriately based on the format
+                        await session.processor.receive_raw_audio(audio_data)
+                    
+                    elif "text" in message:
+                        try:
+                            data = json.loads(message["text"])
+                            if data["type"] in ["speech_start", "speech_end"]:
+                                await session.processor.handle_client_message(data["type"])
+                            elif data["type"] == "transcript":
+                                await session.processor.receive_transcript(data["text"])
+                        except json.JSONDecodeError as e:
+                            print(f"Error decoding JSON in receive loop: {e}")
+            except asyncio.TimeoutError:
+                # This is expected, just continue the loop
+                continue
+            except WebSocketDisconnect:
+                print(f"WebSocket disconnected in receive loop for session {session.session_id}")
+                session.running = False
+                break
+            except Exception as e:
+                print(f"Error in receive loop message handling: {e}")
+                # Continue the loop instead of breaking to maintain connection
+                # unless it's a critical error
+                if isinstance(e, (RuntimeError, ConnectionError)):
+                    print("Critical connection error, breaking receive loop")
+                    session.running = False
+                    break
+    except asyncio.CancelledError:
+        print(f"Receive loop cancelled for session {session.session_id}")
+    except Exception as e:
+        print(f"Unhandled error in receive loop: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        print(f"Receive loop ended for session {session.session_id}")
+        session.running = False
+
+async def process_loop(session: AudioSession):
+    """Loop that processes audio data and generates responses"""
+    try:
+        while session.running:
+            await asyncio.sleep(0.02)
+
+            if not session.speech_queue.empty():
+                await session.processor.process_pending()
+            
+    except asyncio.CancelledError:
+        print(f"Process loop cancelled for session {session.session_id}")
+    except Exception as e:
+        print(f"Error in process loop: {e}")
+        import traceback
+        traceback.print_exc()
+        session.running = False
+
+async def send_loop(session: AudioSession, websocket: WebSocket):
+    """Loop that sends responses back to the client"""
+    try:
+        while session.running:
+            await asyncio.sleep(0.02)
+            try:
+                # Get the next message to send without blocking
+                if not session.outbound_queue.empty():
+                    message = session.outbound_queue.get(block=False)
+                    if message:
+                        if isinstance(message, dict):
+                            # Send JSON message
+                            await websocket.send_json(message)
+                        elif isinstance(message, bytes):
+                            # Send binary data
+                            await websocket.send_bytes(message)
+                        else:
+                            print(f"Unknown message type: {type(message)}")
+                        
+                        session.outbound_queue.task_done()
+            except Exception as e:
+                print(f"Error processing message in send loop: {e}")
+                if isinstance(e, (RuntimeError, ConnectionError)):
+                    print("Critical connection error, breaking send loop")
+                    session.running = False
+                    break
+    except asyncio.CancelledError:
+        print(f"Send loop cancelled for session {session.session_id}")
+    except Exception as e:
+        print(f"Error in send loop: {e}")
+        session.running = False
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -106,12 +260,24 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         
         session.config_id = config["configId"]
         
-        # Create appropriate processor based on mode
+        # Create appropriate processor
         from voiceai.processor import AudioProcessor
         from voiceai.fastprocessor import FastProcessor
         ProcessorClass = FastProcessor if fast_mode else AudioProcessor
         session.processor = ProcessorClass(session_id, session, config["configId"], session.allow_interruptions)
-
+        
+        # Start all tasks in parallel
+        session.running = True
+        tasks = [
+            asyncio.create_task(receive_loop(session, websocket), name="receive"),
+            asyncio.create_task(process_loop(session), name="process"),
+            asyncio.create_task(send_loop(session, websocket), name="send")
+        ]
+        
+        # Store tasks in session
+        session.receive_task, session.process_task, session.send_task = tasks
+        
+        # Send ready message
         await websocket.send_json({
             "type": "call_ready",
             "session_id": session_id
@@ -119,57 +285,25 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
         print(f"Received configId: {session.config_id}")
         
-        # Main message handling loop
-        while True:
-            message = await websocket.receive()
+        await asyncio.gather(*tasks, return_exceptions=True)
             
-            if message["type"] == "websocket.disconnect":
-                break
-                
-            if message["type"] == "websocket.receive":
-                if "bytes" in message:
-                    try:
-                        audio_data = message["bytes"]
-                        
-                        # Handle Opus decoding if needed
-                        if session.audio_format == "opus" and session.opus_stream_inbound:
-                            # Append bytes to the Opus stream
-                            session.opus_stream_inbound.append_bytes(audio_data)
-                            
-                            # Read decoded PCM data (24kHz)
-                            pcm_data = session.opus_stream_inbound.read_pcm()
-                            if pcm_data is not None and len(pcm_data) > 0:
-                                # Convert to int16
-                                pcm_int16 = (pcm_data * 32767).astype(np.int16)
-                                
-                                # we receive 24Khz audio when using opus
-                                # Resample from 24kHz to 16kHz
-                                resampled_audio = signal.resample_poly(pcm_int16, 2, 3)  # 24000 * (2/3) = 16000
-                                
-                                # Convert back to bytes
-                                pcm_bytes = resampled_audio.astype(np.int16).tobytes()
-                                await session.processor.process_audio_chunk(pcm_bytes, websocket)
-                        else:
-                            # Process raw PCM data
-                            await session.processor.process_audio_chunk(audio_data, websocket)
-                    except Exception as e:
-                        print(f"Error processing audio data: {e}")
-                
-                elif "text" in message:
-                    try:
-                        data = json.loads(message["text"])
-                        if data["type"] in ["speech_start", "speech_end"]:
-                            await session.processor.handle_client_message(data["type"], websocket)
-                        elif data["type"] == "transcript":
-                            await session.processor.process_text(data["text"], websocket)
-                    except json.JSONDecodeError as e:
-                        print(f"Error decoding JSON: {e}")
-                        
     except WebSocketDisconnect:
         print(f"Client disconnected: {session_id}")
     except Exception as e:
         print(f"Error in websocket connection: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
+        # Ensure the session is marked as not running
+        if session_id in manager.active_sessions:
+            manager.active_sessions[session_id].running = False
+        
+        # Cancel all tasks
+        if hasattr(session, 'receive_task'):
+            for task in [session.receive_task, session.process_task, session.send_task]:
+                if task and not task.done():
+                    task.cancel()
+        
         print(f"Cleaning up session: {session_id}")
         await manager.disconnect(session_id)
 

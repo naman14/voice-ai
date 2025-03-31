@@ -12,14 +12,16 @@ from .base_tts import TTSChunk
 import time
 import base64
 import torchaudio
+import threading
 
 class LocalTTSPool(BaseTTS):
     def __init__(self, max_gpu_utilization: float = 0.2):
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
-        self.models: List[Tuple[Xtts, asyncio.Lock, int]] = []
+        self.models: List[Tuple[Xtts, threading.Lock, int]] = []
         self.speaker_latents_cache: Dict[str, tuple] = {}
         self.max_gpu_utilization = max_gpu_utilization
-        self.current_model_index = 0 
+        self.current_model_index = 0
+        self.pool_lock = threading.Lock()
     
     def setup(self):
         """Initialize the TTS system"""
@@ -37,12 +39,12 @@ class LocalTTSPool(BaseTTS):
 
             for index in range(max_models):
                 model = self.load_model()
-                model_lock = asyncio.Lock()
+                model_lock = threading.Lock()
                 self.models.append((model, model_lock, index))
         else:
             # For CPU, load a single model
             model = self.load_model()
-            model_lock = asyncio.Lock()
+            model_lock = threading.Lock()
             self.models.append((model, model_lock, 0))
 
     def estimate_model_memory(self) -> float:
@@ -69,10 +71,11 @@ class LocalTTSPool(BaseTTS):
             model.cuda()
         return model
 
-    async def get_model(self) -> Tuple[Xtts, asyncio.Lock, int]:
+    async def get_model(self) -> Tuple[Xtts, threading.Lock, int]:
         """Get a model, its lock, and index from the pool using a round-robin strategy."""
-        model, model_lock, model_index = self.models[self.current_model_index]
-        self.current_model_index = (self.current_model_index + 1) % len(self.models)
+        with self.pool_lock:
+            model, model_lock, model_index = self.models[self.current_model_index]
+            self.current_model_index = (self.current_model_index + 1) % len(self.models)
         print("Returning TTS model index: " + str(model_index))
         return model, model_lock, model_index
 
@@ -80,7 +83,7 @@ class LocalTTSPool(BaseTTS):
         """Clean up resources"""
         self.speaker_latents_cache.clear()
         
-    async def get_speaker_latents(self, voice_samples: str, model: Xtts, model_lock: asyncio.Lock) -> tuple:
+    async def get_speaker_latents(self, voice_samples: str, model: Xtts, model_lock: threading.Lock) -> tuple:
         """Get or compute speaker latents using a specific model."""
         # Convert list to tuple if voice_samples is a list
         cache_key = voice_samples if isinstance(voice_samples, str) else tuple(voice_samples)
@@ -96,7 +99,8 @@ class LocalTTSPool(BaseTTS):
     async def generate_speech(self, text: str, language: str, voice_id: Optional[str] = None, voice_samples: Optional[str] = None, speed: float = 1.0) -> TTSChunk:
         """Generate speech using local TTS model"""
         model, model_lock, _ = await self.get_model()
-        async with model_lock:
+        
+        with model_lock:
             try:
                 gpt_cond_latent, speaker_embedding = await self.get_speaker_latents(voice_samples, model, model_lock)
 
@@ -129,13 +133,13 @@ class LocalTTSPool(BaseTTS):
     async def generate_speech_stream(self, text: str, language: str, voice_id: Optional[str] = None, voice_samples: Optional[str] = None, speed: float = 1.0) -> AsyncGenerator[TTSChunk, None]:
         """Generate speech in streaming mode using local TTS model"""
         model, model_lock, model_index = await self.get_model()
-        async with model_lock:
+        
+        with model_lock:
             try:
                 gpt_cond_latent, speaker_embedding = await self.get_speaker_latents(voice_samples, model, model_lock)
 
                 print("Starting streaming inference with model index: " + str(model_index))
                 t0 = time.time()
-
 
                 chunk_counter = 0
                 for chunk in model.inference_stream(
@@ -160,6 +164,5 @@ class LocalTTSPool(BaseTTS):
                         format="pcm"
                     )
                     chunk_counter += 1
-                    await asyncio.sleep(0.01)
             except Exception as e:
                 print(f"Error during streaming speech generation: {e}") 

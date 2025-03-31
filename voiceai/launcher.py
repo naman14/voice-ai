@@ -210,7 +210,6 @@ class ServiceLauncher:
                         result = s.connect_ex(('localhost', 8000))
                         if result == 0:  # Port is open
                             # Wait a bit more to ensure the application is fully loaded
-                            time.sleep(2)
                             logger.info("Server is ready, opening browser...")
                             webbrowser.open('http://localhost:8000/voiceai')
                             browser_opened = True
