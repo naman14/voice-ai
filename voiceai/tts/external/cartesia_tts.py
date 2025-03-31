@@ -139,12 +139,9 @@ class CartesiaTTS(BaseTTS):
             voice_id=voice_id,
             output_format=self.cartesia_bytes_format
         )
-        
-        # Convert to base64
-        audio_base64 = base64.b64encode(response).decode('utf-8')
-        
+                
         # Return base64 encoded audio data
-        return TTSChunk(audio_base64, self.cartesia_bytes_format["sample_rate"], "wav")
+        return TTSChunk(response, "pcm", self.cartesia_bytes_format["sample_rate"])
         
         
     async def generate_speech_stream(self, text: str, language: str, voice_id: Optional[str] = None, voice_samples: Optional[str] = None, speed: float = 1.0) -> AsyncGenerator[TTSChunk, None]:
@@ -195,10 +192,9 @@ class CartesiaTTS(BaseTTS):
                     
                     # Convert to bytes and send
                     chunk_bytes = chunk.tobytes()
-                    chunk_base64 = base64.b64encode(chunk_bytes).decode("utf-8")
 
                     yield TTSChunk(
-                        chunk=chunk_base64,
+                        chunk=chunk_bytes,
                         sample_rate=self.cartesia_stream_format["sample_rate"],
                         format=self.cartesia_stream_format["encoding"]
                     )

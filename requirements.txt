@@ -36,3 +36,7 @@ vllm==0.6.4
 #==optional==
 #cartesia
 #elevenlabs
+
+# For Opus codec support
+sphn
+scipy

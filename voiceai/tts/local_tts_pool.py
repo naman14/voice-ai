@@ -118,12 +118,11 @@ class LocalTTSPool(BaseTTS):
                 torchaudio.save(buffer, torch.tensor(audio["wav"]).unsqueeze(0), 24000, format="wav")
                 buffer.seek(0)
                 
-                # Convert to base64
-                audio_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+                audio_bytes = buffer.read()
                 
                 print(f"Audio generation completed in {time.time() - t0:.2f} seconds")
                 
-                return TTSChunk(audio_base64, 24000, "wav")
+                return TTSChunk(audio_bytes, "pcm", 24000)
             except Exception as e:
                 print(f"Error during speech generation: {e}")
         
@@ -153,13 +152,12 @@ class LocalTTSPool(BaseTTS):
                     
                     # Convert tensor to raw PCM bytes
                     chunk_bytes = chunk.squeeze().cpu().numpy().tobytes()
-                    chunk_base64 = base64.b64encode(chunk_bytes).decode("utf-8")
-                    
+
                     print('sending chunk: ' + str(chunk_counter) + ' with model index: ' + str(model_index))
                     yield TTSChunk(
-                        chunk=chunk_base64,
+                        chunk=chunk_bytes,
                         sample_rate=24000,
-                        format="pcm_f32le"
+                        format="pcm"
                     )
                     chunk_counter += 1
                     await asyncio.sleep(0.01)

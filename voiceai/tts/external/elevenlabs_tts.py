@@ -41,9 +41,8 @@ class ElevenLabsTTS(BaseTTS):
                     raise Exception(f"ElevenLabs API error: {error_text}")
                 
                 audio = await response.read()
-                audio_base64 = base64.b64encode(audio).decode('utf-8')
                 
-                return TTSChunk(audio_base64, 24000, "wav")
+                return TTSChunk(audio, "pcm", 24000)
             
         
     async def generate_speech_stream(self, text: str, language: str, voice_id: Optional[str] = None, voice_samples: Optional[str] = None, speed: float = 1.0) -> AsyncGenerator[TTSChunk, None]:
@@ -66,9 +65,8 @@ class ElevenLabsTTS(BaseTTS):
                     raise Exception(f"ElevenLabs API error: {error_text}")
                 
                 async for chunk in response.content.iter_chunked(self.chunk_size):
-                    chunk_base64 = base64.b64encode(chunk).decode("utf-8")
                     yield TTSChunk(
-                        chunk=chunk_base64,
+                        chunk=chunk,
                         sample_rate=24000,
                         format="pcm_f32le"
                     ) 

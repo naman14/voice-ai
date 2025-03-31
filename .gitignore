@@ -11,3 +11,4 @@ voice_samples/
 active_configs.json
 configs/
 mlx_models/
+debug_audio/

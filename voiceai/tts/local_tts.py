@@ -92,12 +92,11 @@ class LocalTTS(BaseTTS):
             torchaudio.save(buffer, torch.tensor(audio["wav"]).unsqueeze(0), 24000, format="wav")
             buffer.seek(0)
             
-            # Convert to base64
-            audio_base64 = base64.b64encode(buffer.read()).decode('utf-8')
+            audio_bytes = buffer.read()
             
             print(f"Audio generation completed in {time.time() - t0:.2f} seconds")
             
-            return TTSChunk(audio_base64, 24000, "wav")
+            return TTSChunk(audio_bytes, "pcm", 24000)
         
     async def generate_speech_stream(self, text: str, language: str, voice_id: Optional[str] = None, voice_samples: Optional[str] = None, speed: float = 1.0) -> AsyncGenerator[TTSChunk, None]:
         """Generate speech in streaming mode using local TTS model"""
@@ -122,13 +121,12 @@ class LocalTTS(BaseTTS):
                 
                 # Convert tensor to raw PCM bytes
                 chunk_bytes = chunk.squeeze().cpu().numpy().tobytes()
-                chunk_base64 = base64.b64encode(chunk_bytes).decode("utf-8")
-                
+
                 # print('sending chunk: ' + str(chunk_counter))
                 yield TTSChunk(
-                    chunk=chunk_base64,
+                    chunk=chunk_bytes,
                     sample_rate=24000,
-                    format="pcm_f32le"
+                    format="pcm"
                 )
                 chunk_counter += 1
                 # await asyncio.sleep(0.01) 

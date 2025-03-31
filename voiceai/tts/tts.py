@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from .base_tts import BaseTTS
 from .base_tts import TTSChunk
 from fastapi import APIRouter
-
+import base64
 
 load_dotenv()
 
@@ -108,9 +108,10 @@ async def stream_audio_chunks(websocket: WebSocket, text: str, config_id: str, s
         voice_id = tts_instance.get_voice_id(config_id)
         
         async for chunk in await tts_instance.generate_speech_stream(text, language, voice_id, voice_samples, speed):
+            base64_chunk = base64.b64encode(chunk.chunk).decode("utf-8")
             await websocket.send_json({
                 "type": "audio_chunk",
-                "chunk": chunk.chunk,
+                "chunk": base64_chunk,
                 "format": chunk.format,
                 "sample_rate": chunk.sample_rate,
                 "timestamp": time.time()

@@ -8,15 +8,16 @@ from typing import Optional, List
 from voiceai.utils.speechdetector import AudioSpeechDetector
 import asyncio
 from fastapi import WebSocket
-
+from voiceai.server import AudioSession
 class AudioProcessor:
-    def __init__(self, session_id: str, config_id: str):
+    def __init__(self, session_id: str, session: AudioSession, config_id: str):
         self.session_id = session_id
         self.config_id = config_id
         self.audio_chunks: List[np.ndarray] = []
         self.is_speaking = False
         self.is_responding = False
         self.tts_lock = asyncio.Lock()
+        self.session = session
         
         self.speech_detector = AudioSpeechDetector(
             sample_rate=16000,

@@ -45,7 +45,84 @@
             height: 200px;
             overflow-y: auto;
         }
+        .format-selector {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+        }
+        
+        /* Toggle switch styles */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+            margin: 0 10px;
+        }
+        
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+        
+        input:focus + .slider {
+            box-shadow: 0 0 1px #2196F3;
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        
+        .format-label {
+            font-weight: bold;
+            min-width: 50px;
+        }
+        
+        /* Audio visualization */
+        .audio-visualizer {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background-color: #ff4d4d;
+            margin: 10px auto;
+            transition: all 0.1s ease-out;
+        }
     </style>
+   <!-- Opus recorder -->
+   <script src="https://cdn.jsdelivr.net/npm/opus-recorder@latest/dist/recorder.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/opus-recorder@latest/dist/encoderWorker.min.js"></script>
+
+   <!-- Opus decoder -->
+   <script src="https://cdn.jsdelivr.net/npm/ogg-opus-decoder/dist/ogg-opus-decoder.min.js"></script>
 </head>
 <body>
     <h1>voiceai Fun</h1>
@@ -54,175 +131,148 @@
     <div id="speechStatus" class="status">Not speaking</div>
 
     <div class="mode-selector">
+        <div class="format-selector">
+            <span class="format-label">PCM</span>
+            <label class="switch">
+                <input type="checkbox" id="formatToggle">
+                <span class="slider"></span>
+            </label>
+            <span class="format-label">Opus</span>
+            <span id="formatDescription" style="margin-left: 10px; font-size: 0.9em; color: #666;">
+                (PCM: Higher quality, Opus: Lower bandwidth)
+            </span>
+        </div>
         <button id="connectBtn">Connect</button>
         <button id="startSpeakingBtn" disabled>Start Speaking</button>
         <button id="stopSpeakingBtn" disabled>Stop Speaking</button>
     </div>
-
+    
     <div id="log"></div>
 
+    <div id="audioVisualizer" class="audio-visualizer" style="width: 30px; height: 30px;"></div>
+
     <script>
-        class AudioStreamPlayer {
+        // Audio playback with scheduled chunks for seamless playback
+        class AudioPlayer {
             constructor() {
-                this.audioContext = null;
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
                 this.sourceNode = null;
-                this.audioQueue = [];
-                this.isPlaying = false;
-                this.onStartCallback = null;
-                this.onEndCallback = null;
-                this.initializeAudioContext();
+                this.scheduledEndTime = 0;
+                this.opusDecoder = null;
+                this.initializeDecoder();
             }
-
-            initializeAudioContext() {
-                if (typeof window !== 'undefined') {
-                    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-                    if (AudioContextClass) {
-                        this.audioContext = new AudioContextClass({ sampleRate: 24000 }); // Match server sample rate
-                    } else {
-                        console.error('Web Audio API not supported');
-                    }
-                }
-            }
-
-            setCallbacks(onStart, onEnd) {
-                this.onStartCallback = onStart;
-                this.onEndCallback = onEnd;
-            }
-
-            async addChunk(base64Audio) {
-                if (!this.audioContext) {
-                    this.initializeAudioContext();
-                    if (!this.audioContext) {
-                        console.error('AudioContext could not be initialized');
-                        return;
-                    }
-                }
-
+            
+            async initializeDecoder() {
                 try {
-                    // Decode base64 to binary
-                    const binaryString = atob(base64Audio);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
+                    this.opusDecoder = new window["ogg-opus-decoder"].OggOpusDecoder();
+                    await this.opusDecoder.ready;
+                    console.log("Ogg Opus decoder initialized");
+                } catch (e) {
+                    console.error("Failed to initialize Opus decoder:", e);
+                    this.opusDecoder = null;
+                }
+            }
+            
+            async decodeOpusData(opusData) {
+                if (!this.opusDecoder) {
+                    await this.initializeDecoder();
+                    if (!this.opusDecoder) {
+                        throw new Error("Opus decoder not available");
                     }
-
-                    // Convert to Float32Array (server sends pcm_f32le)
-                    const floatData = new Float32Array(bytes.buffer);
-
-                    // Create audio buffer
-                    const audioBuffer = this.audioContext.createBuffer(
-                        1,  // mono
-                        floatData.length,
-                        this.audioContext.sampleRate
-                    );
-
-                    // Copy the PCM data to the audio buffer
-                    audioBuffer.copyToChannel(floatData, 0);
-
-                    // Add to queue
-                    this.audioQueue.push(audioBuffer);
-
-                    // Start playing if not already playing
-                    if (!this.isPlaying) {
-                        this.playNextChunk();
+                }
+                
+                return await this.opusDecoder.decode(new Uint8Array(opusData));
+            }
+            
+            scheduleAudioPlayback(newAudioData) {
+                const sampleRate = this.audioContext.sampleRate;
+                const numberOfChannels = 1;
+                const nowTime = this.audioContext.currentTime;
+                
+                // Create a new buffer and source node for the incoming audio data
+                const newBuffer = this.audioContext.createBuffer(numberOfChannels, newAudioData.length, sampleRate);
+                newBuffer.copyToChannel(newAudioData, 0);
+                const sourceNode = this.audioContext.createBufferSource();
+                sourceNode.buffer = newBuffer;
+                sourceNode.connect(this.audioContext.destination);
+                
+                // Schedule the new audio to play immediately after any currently playing audio
+                const startTime = Math.max(this.scheduledEndTime, nowTime);
+                sourceNode.start(startTime);
+                
+                // Update the scheduled end time
+                this.scheduledEndTime = startTime + newBuffer.duration;
+                
+                if (this.sourceNode && this.sourceNode.buffer) {
+                    const currentEndTime = this.sourceNode.startTime + this.sourceNode.buffer.duration;
+                    if (currentEndTime <= nowTime) {
+                        this.sourceNode.disconnect();
                     }
+                }
+                this.sourceNode = sourceNode;
+            }
+            
+            async processAudioChunk(data, format) {
+                try {
 
+                    if (format === "opus") {
+                         // Decode Opus to PCM
+                         const opusData = new Uint8Array(atob(data).split('').map(c => c.charCodeAt(0)));
+                        const { channelData, samplesDecoded } = await this.decodeOpusData(opusData);
+                        if (samplesDecoded > 0) {
+                            this.scheduleAudioPlayback(channelData[0]);
+                        }
+                    } else {
+                         // Decode base64 to binary for PCM
+                        const binaryString = atob(data);
+                        const bytes = new Uint8Array(binaryString.length);
+                        for (let i = 0; i < binaryString.length; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        // Convert to Float32Array (server sends pcm_f32le)
+                        const floatData = new Float32Array(bytes.buffer);
+                        this.scheduleAudioPlayback(floatData);
+                    }
                 } catch (error) {
                     console.error('Error processing audio chunk:', error);
                 }
             }
-
-            async playNextChunk() {
-                if (!this.audioContext || this.audioQueue.length === 0 || this.isPlaying) {
-                    return;
-                }
-
-                const audioBuffer = this.audioQueue.shift();
-                if (!audioBuffer) return;
-
-                this.isPlaying = true;
-                this.sourceNode = this.audioContext.createBufferSource();
-                this.sourceNode.buffer = audioBuffer;
-                this.sourceNode.connect(this.audioContext.destination);
-
-                // Handle the end of this chunk
-                this.sourceNode.onended = () => {
-                    this.isPlaying = false;
-                    this.sourceNode.disconnect();
-                    this.sourceNode = null;
-
-                    // Play next chunk if available
-                    if (this.audioQueue.length > 0) {
-                        this.playNextChunk();
-                    } else if (this.onEndCallback) {
-                        this.onEndCallback();
-                    }
-                };
-
-                // Call start callback if this is the first chunk
-                if (this.onStartCallback && this.audioQueue.length === 0) {
-                    this.onStartCallback();
-                }
-
-                try {
-                    this.sourceNode.start(0);
-                } catch (error) {
-                    console.error('Error starting audio playback:', error);
-                    this.isPlaying = false;
-                    if (this.onEndCallback) {
-                        this.onEndCallback();
-                    }
-                }
-            }
-
-            async stop() {
+            
+            async cleanup() {
                 try {
                     if (this.sourceNode) {
-                        this.sourceNode.stop();
                         this.sourceNode.disconnect();
                         this.sourceNode = null;
                     }
-                    this.audioQueue = [];
-                    this.isPlaying = false;
-
-                    if (this.audioContext?.state === 'running') {
-                        await this.audioContext.suspend();
+                    
+                    if (this.opusDecoder) {
+                        this.opusDecoder.free();
+                        this.opusDecoder = null;
                     }
-                } catch (error) {
-                    console.error('Error stopping audio:', error);
-                }
-            }
-
-            async resume() {
-                try {
-                    if (this.audioContext?.state === 'suspended') {
-                        await this.audioContext.resume();
-                    }
-                } catch (error) {
-                    console.error('Error resuming audio context:', error);
-                }
-            }
-
-            async cleanup() {
-                try {
-                    await this.stop();
-                    if (this.audioContext) {
-                        await this.audioContext.close();
-                        this.audioContext = null;
-                    }
+                    
+                    await this.audioContext.close();
+                    this.audioContext = null;
                 } catch (error) {
                     console.error('Error cleaning up audio player:', error);
                 }
             }
         }
 
+        // Global variables
         let socket;
-        let mediaRecorder;
-        let audioContext;
+        let opusRecorder = null;
+        let audioPlayer;
         let isConnected = false;
         let isRecording = false;
-        let audioPlayer;
+        let audioFormat = "pcm";
         let sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+        let mediaStream = null;
+        let audioProcessor = null;
+        let audioContextObj = null;
+        let analyzerContext = null;
+        let analyzer = null;
+        let animationFrame = null;
+        let amplitude = 0;
 
         // DOM elements
         const connectBtn = document.getElementById('connectBtn');
@@ -231,6 +281,8 @@
         const connectionStatus = document.getElementById('connectionStatus');
         const speechStatus = document.getElementById('speechStatus');
         const log = document.getElementById('log');
+        const formatToggle = document.getElementById('formatToggle');
+        const audioVisualizer = document.getElementById('audioVisualizer');
 
         function addLog(message) {
             const line = document.createElement('div');
@@ -240,6 +292,9 @@
         }
 
         function connect() {
+            audioFormat = formatToggle.checked ? "opus" : "pcm";
+            addLog(`Using audio format: ${audioFormat}`);
+            
             socket = new WebSocket(`ws://localhost:8000/ws/${sessionId}`);
 
             socket.onopen = () => {
@@ -248,17 +303,19 @@
                 connectionStatus.className = 'status connected';
                 startSpeakingBtn.disabled = false;
                 connectBtn.disabled = true;
+                formatToggle.disabled = true;
                 addLog('Connected to server');
 
                 socket.send(JSON.stringify({
                     agentId: "1234",
                     agentName: "Donald Trump",
                     configId: "7890",
-                    systemPrompt: "You are Donald Trump responding to a call. Provide plain text responses—no voice tone, delivery notes, or emotional cues. Engage fully with any topic while staying factual. Mimic Donald Trump’s exact speech style, including his pacing, phrasing, and mannerisms, without adding reactions like '(laughs)' or other non-verbal expressions.",
+                    systemPrompt: "You are Donald Trump responding to a call. Provide plain text responses—no voice tone, delivery notes, or emotional cues. Engage fully with any topic while staying factual. Mimic Donald Trump's exact speech style, including his pacing, phrasing, and mannerisms, without adding reactions like '(laughs)' or other non-verbal expressions.",
                     voiceSampleUrl: "https://github.com/naman14/voice-ai/raw/ad2c54c937879a1d4a1e50181c82735e86e3365c/demo/samples/DonaldTrump.wav",
                     rate: 1.0,
                     language: "en",
-                    allowInterruptions: true
+                    allowInterruptions: true,
+                    format: audioFormat
                 }));
             };
 
@@ -269,6 +326,7 @@
                 startSpeakingBtn.disabled = true;
                 stopSpeakingBtn.disabled = true;
                 connectBtn.disabled = false;
+                formatToggle.disabled = false; // Re-enable format toggle after disconnection
                 stopRecording();
                 addLog('Disconnected from server');
                 if (audioPlayer) {
@@ -276,14 +334,29 @@
                 }
             };
 
-            socket.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'tts_stream') {
-                    handleTTSStream(data.data);
-                } else if (data.type === 'tts_stream_end') {
-                    addLog('Audio stream ended');
-                } else if (data.type === 'error') {
-                    addLog('Error: ' + data.error);
+            socket.onmessage = async (event) => {
+                try {
+                    // Check if the message is binary (Opus) or text (JSON/PCM)
+                    if (event.data instanceof Blob) {
+                        // Handle Opus data
+                        const arrayBuffer = await event.data.arrayBuffer();
+                        const { channelData, samplesDecoded } = await audioPlayer.decodeOpusData(arrayBuffer);
+                        if (samplesDecoded > 0) {
+                            audioPlayer.scheduleAudioPlayback(channelData[0]);
+                        }
+                    } else {
+                        // Handle JSON data (PCM or control messages)
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'tts_stream') {
+                            await audioPlayer.processAudioChunk(data.data.chunk, data.data.format || "pcm");
+                        } else if (data.type === 'tts_stream_end') {
+                            addLog('Audio stream ended');
+                        } else if (data.type === 'error') {
+                            addLog('Error: ' + data.error);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error processing message:", e);
                 }
             };
 
@@ -293,79 +366,195 @@
         }
 
         async function initAudio() {
-            audioPlayer = new AudioStreamPlayer();
-            audioPlayer.setCallbacks(
-                () => addLog('Started playing audio response'),
-                () => addLog('Finished playing audio response')
-            );
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            audioPlayer = new AudioPlayer();
         }
 
         async function startRecording() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        channelCount: 1,
-                        sampleRate: 16000,
-                        sampleSize: 16,
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
-                });
-
-                const audioContext = new AudioContext({ sampleRate: 16000 });
-                const source = audioContext.createMediaStreamSource(stream);
-                const processor = audioContext.createScriptProcessor(2048, 1, 1);
-
-                source.connect(processor);
-                processor.connect(audioContext.destination);
-
-                processor.onaudioprocess = (e) => {
-                    if (socket && socket.readyState === WebSocket.OPEN) {
-                        const audioData = e.inputBuffer.getChannelData(0);
-                        const int16Data = new Int16Array(audioData.length);
-                        for (let i = 0; i < audioData.length; i++) {
-                            const s = Math.max(-1, Math.min(1, audioData[i]));
-                            int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                        }
-                        socket.send(int16Data.buffer);
-                    }
-                };
-
+                if (audioFormat === "opus" && window.Recorder) {
+                    await startOpusRecording();
+                } else {
+                    await startPCMRecording();
+                }
+                
                 isRecording = true;
                 startSpeakingBtn.disabled = true;
                 stopSpeakingBtn.disabled = false;
                 speechStatus.textContent = 'Speaking';
                 speechStatus.className = 'status speaking';
-
-                addLog('Started recording');
-
-                // Store for cleanup
-                mediaStream = stream;
-                audioProcessor = processor;
-                audioContextObj = audioContext;
-
+                addLog(`Started recording using ${audioFormat} format`);
+                
             } catch (error) {
                 addLog('Error starting recording: ' + error.message);
             }
         }
+        
+        async function startOpusRecording() {
+            try {
+                // Get microphone stream
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaStream = stream;
+                
+                // Create Opus recorder
+                opusRecorder = new Recorder({
+                    encoderPath: "https://cdn.jsdelivr.net/npm/opus-recorder@latest/dist/encoderWorker.min.js",
+                    streamPages: true,
+                    encoderApplication: 2049,
+                    encoderFrameSize: 80, // milliseconds
+                    encoderSampleRate: 24000,
+                    maxFramesPerPage: 1,
+                    numberOfChannels: 1,
+                });
+
+                opusRecorder.ondataavailable = async (arrayBuffer) => {
+                    if (socket && socket.readyState === WebSocket.OPEN) {
+                        await socket.send(arrayBuffer);
+                    }
+                };
+
+                await opusRecorder.start();
+                console.log("Opus recording started");
+                
+                // Setup audio analyzer for visualization
+                setupAudioAnalyzer(stream);
+                
+            } catch (error) {
+                console.error("Error starting Opus recording:", error);
+                addLog("Opus recording failed, falling back to PCM");
+                audioFormat = "pcm";
+                formatToggle.checked = false;
+                await startPCMRecording();
+            }
+        }
+
+        async function startPCMRecording() {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000,
+                    sampleSize: 16,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
+            mediaStream = stream;
+
+            const audioContext = new AudioContext({ sampleRate: 16000 });
+            const source = audioContext.createMediaStreamSource(stream);
+            const processor = audioContext.createScriptProcessor(2048, 1, 1);
+
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+
+            processor.onaudioprocess = (e) => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    const audioData = e.inputBuffer.getChannelData(0);
+                    const int16Data = new Int16Array(audioData.length);
+                    for (let i = 0; i < audioData.length; i++) {
+                        const s = Math.max(-1, Math.min(1, audioData[i]));
+                        int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                    socket.send(int16Data.buffer);
+                }
+            };
+
+            // Store for cleanup
+            audioProcessor = processor;
+            audioContextObj = audioContext;
+            
+            // Setup audio analyzer for visualization
+            setupAudioAnalyzer(stream);
+        }
+        
+        function setupAudioAnalyzer(stream) {
+            // Clean up any existing analyzer
+            if (animationFrame) {
+                cancelAnimationFrame(animationFrame);
+                animationFrame = null;
+            }
+            
+            if (analyzerContext) {
+                analyzerContext.close();
+            }
+            
+            // Create analyzer for audio visualization
+            analyzerContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyzer = analyzerContext.createAnalyser();
+            analyzer.fftSize = 256;
+            const sourceNode = analyzerContext.createMediaStreamSource(stream);
+            sourceNode.connect(analyzer);
+            
+            // Process audio for visualization
+            const processAudio = () => {
+                const dataArray = new Uint8Array(analyzer.frequencyBinCount);
+                analyzer.getByteFrequencyData(dataArray);
+                amplitude = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+                
+                // Update visualizer
+                updateAudioVisualizer(amplitude);
+                
+                // Continue animation loop
+                animationFrame = requestAnimationFrame(processAudio);
+            };
+            
+            processAudio();
+        }
+        
+        function updateAudioVisualizer(amplitude) {
+            const amplitudePercent = amplitude / 255;
+            const maxAmplitude = 0.3; // for scaling
+            const minDiameter = 30; // minimum diameter of the circle in pixels
+            const maxDiameter = 100; // maximum diameter
+            
+            const diameter = minDiameter + (maxDiameter - minDiameter) * (amplitudePercent / maxAmplitude);
+            
+            audioVisualizer.style.width = `${diameter}px`;
+            audioVisualizer.style.height = `${diameter}px`;
+            
+            // Change color based on amplitude
+            const hue = 360 - (amplitudePercent * 120); // Red (0) to Green (120)
+            audioVisualizer.style.backgroundColor = `hsl(${hue}, 100%, 50%)`;
+        }
 
         function stopRecording() {
             if (isRecording) {
-                // Cleanup audio context
+                if (audioFormat === "opus" && opusRecorder) {
+                    opusRecorder.stop();
+                    opusRecorder = null;
+                }
+                
+                // Cleanup PCM audio context
                 if (audioProcessor) {
                     audioProcessor.disconnect();
                     audioProcessor = null;
                 }
+                
                 if (mediaStream) {
                     mediaStream.getTracks().forEach(track => track.stop());
                     mediaStream = null;
                 }
+                
                 if (audioContextObj) {
                     audioContextObj.close();
                     audioContextObj = null;
                 }
+                
+                // Clean up analyzer
+                if (animationFrame) {
+                    cancelAnimationFrame(animationFrame);
+                    animationFrame = null;
+                }
+                
+                if (analyzerContext) {
+                    analyzerContext.close();
+                    analyzerContext = null;
+                }
+                
+                // Reset visualizer
+                audioVisualizer.style.width = "30px";
+                audioVisualizer.style.height = "30px";
+                audioVisualizer.style.backgroundColor = "#ff4d4d";
 
                 isRecording = false;
                 startSpeakingBtn.disabled = false;
@@ -376,20 +565,23 @@
             }
         }
 
-        async function handleTTSStream(data) {
-            if (data.type === 'audio_chunk' && data.chunk) {
-                try {
-                    await audioPlayer.addChunk(data.chunk);
-                } catch (error) {
-                    addLog('Error handling audio chunk: ' + error.message);
-                }
-            }
-        }
-
         // Event listeners
         connectBtn.addEventListener('click', connect);
         startSpeakingBtn.addEventListener('click', startRecording);
         stopSpeakingBtn.addEventListener('click', stopRecording);
+        
+        formatToggle.addEventListener('change', function() {
+            audioFormat = this.checked ? "opus" : "pcm";
+            addLog(`Audio format changed to: ${audioFormat}`);
+        });
+
+        // Check for Opus support and disable toggle if not available
+        if (!window.Recorder || !window["ogg-opus-decoder"]) {
+            formatToggle.disabled = true;
+            formatToggle.checked = false;
+            document.getElementById('formatDescription').textContent = 
+                "(Opus codec not available in this browser, using PCM)";
+        }
 
         // Initialize audio on page load
         initAudio().catch(error => addLog('Error initializing audio: ' + error.message));

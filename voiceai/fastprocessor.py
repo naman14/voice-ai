@@ -7,13 +7,16 @@ from typing import Optional, List
 import asyncio
 from fastapi import WebSocket
 from voiceai.utils.speechdetector import AudioSpeechDetector
+from voiceai.utils.debug_utils import save_audio_chunks
 from voiceai.config.agents_config import agent_manager
 import time
 import io
 from voiceai.utils.metrics import metrics_manager
+from voiceai.server import AudioSession
+import base64
 
 class FastProcessor:
-    def __init__(self, session_id: str, config_id: str, allow_interruptions: bool = False):
+    def __init__(self, session_id: str, session: AudioSession, config_id: str, allow_interruptions: bool = False):
         self.session_id = session_id
         self.config_id = config_id
         self.audio_chunks: List[np.ndarray] = []
@@ -24,6 +27,8 @@ class FastProcessor:
         self.current_metrics = None
         self.metrics = []
         self.allow_interruptions = allow_interruptions
+
+        self.session = session
 
         # Add interruption handling
         self.current_task = None
@@ -68,6 +73,11 @@ class FastProcessor:
             if detection_result['action'] == 'process':
                 print("New conversation turn started")
                 
+                self.audio_chunks = detection_result.get('audio_chunks', [])
+
+                # Debug: Save audio chunks to file
+                # save_audio_chunks(self.audio_chunks, self.session_id, self.current_turn_id)
+                
                 # notify client that a new conversation turn has started
                 # useful for client to discard any existing queued audio chunks from previous turn
 
@@ -84,7 +94,6 @@ class FastProcessor:
                         if self.current_task and not self.current_task.done():
                             self.current_task.cancel()
 
-                self.audio_chunks = detection_result.get('audio_chunks', [])
                 # Create new task for processing
                 self.should_interrupt = False
                 self.current_task = asyncio.create_task(self.process_speech(websocket))
@@ -199,18 +208,7 @@ class FastProcessor:
                     is_first_chunk = True
                     self.current_metrics.log_metrics()
 
-                data = {
-                    "type": "audio_chunk",
-                    "chunk": chunk.chunk,
-                    "format": chunk.format,
-                    "sample_rate": chunk.sample_rate,
-                    "timestamp": time.time()
-                }
-                await websocket.send_json({
-                    "type": "tts_stream",
-                    "data": data,
-                    "session_id": self.session_id
-                })
+                await self.send_audio_chunk(websocket, chunk.chunk, chunk.format, chunk.sample_rate)
                 
             if not self.should_interrupt:
                 await websocket.send_json({
@@ -247,3 +245,59 @@ class FastProcessor:
     async def cleanup(self):
         """Clean up any resources"""
         pass  # No cleanup needed for direct calls 
+
+
+    async def send_audio_chunk(self, websocket, chunk, format, sample_rate):
+        session = self.session
+        if not session:
+            print("No session found, returning")
+            return
+
+        if session.audio_format == "opus" and session.opus_stream_outbound:
+            try:
+                # Convert to float32 numpy array if needed
+                if not isinstance(chunk, np.ndarray):
+                    chunk = np.frombuffer(chunk, dtype=np.float32)
+                
+                # Ensure the chunk is in the correct format for Opus encoding
+                if chunk.dtype != np.float32:
+                    chunk = chunk.astype(np.float32) / 32768.0  # Convert from int16 to float32
+                
+                # Process the audio in 80ms frames (1920 samples at 24kHz)
+                FRAME_SIZE = 1920  # 80ms at 24kHz
+                
+                for i in range(0, len(chunk), FRAME_SIZE):
+                    frame = chunk[i:i + FRAME_SIZE]
+                    
+                    # Pad the last frame if necessary
+                    if len(frame) < FRAME_SIZE:
+                        frame = np.pad(frame, (0, FRAME_SIZE - len(frame)), 'constant')
+                    
+                    # Append PCM frame to the Opus stream
+                    session.opus_stream_outbound.append_pcm(frame)
+                
+                # Read encoded Opus data
+                opus_data = session.opus_stream_outbound.read_bytes()
+                print(f"Opus data size: {len(opus_data) if opus_data else 0} bytes")
+                
+                if opus_data:
+                    # Send as binary WebSocket message
+                    print("Sending Opus data to client")
+                    await websocket.send_bytes(opus_data)
+                
+            except Exception as e:
+                print(f"Error in Opus processing: {str(e)}")
+        else:
+            # Original PCM handling
+            data = {
+                "type": "audio_chunk",
+                "chunk": base64.b64encode(chunk).decode("utf-8"),
+                "format": format,
+                "sample_rate": sample_rate,
+                "timestamp": time.time()
+            }
+            await websocket.send_json({
+                "type": "tts_stream",
+                "data": data,
+                "session_id": self.session_id
+            })
