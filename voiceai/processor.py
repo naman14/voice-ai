@@ -18,7 +18,7 @@ class AudioProcessor:
         self.is_responding = False
         self.tts_lock = asyncio.Lock()
         self.session = session
-        
+
         self.speech_detector = AudioSpeechDetector(
             sample_rate=16000,
             energy_threshold=0.15,
@@ -172,14 +172,14 @@ class AudioProcessor:
                     if msg.type == aiohttp.WSMsgType.TEXT:
                         data = json.loads(msg.data)
                         await websocket.send_json({
-                            "type": "tts_stream",
+                            "type": "audio_stream",
                             "data": data,
                             "session_id": self.session_id
                         })
                         
                         if data.get("type") == "stream_end":
                             await websocket.send_json({
-                                "type": "tts_stream_end",
+                                "type": "audio_stream_end",
                                 "session_id": self.session_id
                             })
                             break

@@ -383,7 +383,7 @@ class FastProcessor:
             # Only send end message if not interrupted
             if not self.should_interrupt and self.current_processing_id == processing_id:
                 await self.send_message({
-                    "type": "tts_stream_end",
+                    "type": "audio_stream_end",
                     "session_id": self.session_id
                 })
         except asyncio.CancelledError:
@@ -473,7 +473,18 @@ class FastProcessor:
                     opus_data = session.opus_stream_outbound.read_bytes()
                     
                     if opus_data:
-                        await self.send_message(opus_data)
+                        data = {
+                            "type": "audio_stream",
+                            "data": {
+                                "type": "audio_chunk",
+                                "chunk": base64.b64encode(opus_data).decode("utf-8"),
+                                "format": "opus",
+                                "sample_rate": 24000,
+                                "timestamp": time.time()
+                            },
+                            "session_id": self.session_id
+                        }
+                        await self.send_message(data)
             
             except Exception as e:
                 print(f"Error in Opus processing: {str(e)}")
@@ -482,7 +493,7 @@ class FastProcessor:
         else:
             # PCM handling
             data = {
-                "type": "tts_stream",
+                "type": "audio_stream",
                 "data": {
                     "type": "audio_chunk",
                     "chunk": base64.b64encode(chunk).decode("utf-8"),
