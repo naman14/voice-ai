@@ -42,7 +42,8 @@ class AudioSession:
         self.audio_format = "pcm"  # Default to PCM
         
          # Processing queue for speech segments
-        self.speech_queue = queue.Queue()
+        self.input_speech_queue = queue.Queue()
+        self.input_text_queue = queue.Queue()
         # Outbound queue for messages to the client
         self.outbound_queue = queue.Queue()
         
@@ -179,7 +180,7 @@ async def process_loop(session: AudioSession):
         while session.running:
             await asyncio.sleep(0.02)
 
-            if not session.speech_queue.empty():
+            if not session.input_speech_queue.empty() or not session.input_text_queue.empty():
                 await session.processor.process_pending()
             
     except asyncio.CancelledError:

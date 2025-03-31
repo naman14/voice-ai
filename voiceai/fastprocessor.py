@@ -76,7 +76,7 @@ class FastProcessor:
                 audio_chunks = detection_result.get('audio_chunks', [])
                 
                 # Put the detected speech in the queue for processing
-                self.session.speech_queue.put(audio_chunks)
+                self.session.input_speech_queue.put(audio_chunks)
 
     async def receive_transcript(self, text: str) -> None:
         """Handle direct transcript input"""
@@ -87,61 +87,71 @@ class FastProcessor:
             self.current_metrics.transcription_end_time = time.time()
             self.metrics.append(self.current_metrics)
             
-            # Process the transcript directly
-            await self.process_text(text, processing_id=None)
+            # Put the transcript in the queue for processing
+            self.session.input_text_queue.put(text)
 
     async def process_pending(self) -> None:
         """Process any pending speech segments"""
+        print("Processing pending speech segments")
         try:
-            print("Processing pending speech segments")
             # Get the next speech segment to process
-            audio_chunks = self.session.speech_queue.get(block=False)
-            
-            # Notify client that a new conversation turn has started
-            if self.allow_interruptions and self.is_responding:
-                print("Interruption allowed, sending new conversation turn")
-                await self.send_message({
-                    "type": "new_conversation_turn",
-                    "session_id": self.session_id
-                })
-                
-                # if interruptions allowed, we should interrupt the current task and cancel it
-                self.should_interrupt = True
-                if self.current_task and not self.current_task.done():
-                    print(f"Cancelling existing task for session {self.session_id}")
-                    self.current_task.cancel()
-                    try:
-                        await asyncio.wait_for(self.current_task, timeout=0.5)
-                    except (asyncio.CancelledError, asyncio.TimeoutError):
-                        pass
-                    
-            else:
-                # if interruptions not allowed, we should ignore the new audio chunks if we are currently responding
-                if self.is_responding:
-                    return
-           
-            processing_id = time.time()  # Use timestamp as unique ID
-            self.current_processing_id = processing_id
-            self.is_responding = True
-            self.should_interrupt = False
-            
-            # Create a new task for the thread processing
-            self.current_task = asyncio.create_task(
-                asyncio.to_thread(
-                    self._process_speech_in_thread, 
-                    audio_chunks, 
-                    processing_id
-                ),
-                name=f"process_thread_{self.session_id}"
-            )
-            
-            # Mark the queue task as done
-            self.session.speech_queue.task_done()
+            audio_chunks = self.session.input_speech_queue.get(block=False)
         except queue.Empty:
-            # Queue was empty, just continue
-            pass
+            audio_chunks = None
+        try:
+            transcript = self.session.input_text_queue.get(block=False)
+        except queue.Empty:
+            transcript = None
+        
+        if not audio_chunks and not transcript:
+            return
+        
+        # Notify client that a new conversation turn has started
+        if self.allow_interruptions and self.is_responding:
+            print("Interruption allowed, sending new conversation turn")
+            await self.send_message({
+                "type": "new_conversation_turn",
+                "session_id": self.session_id
+            })
+            
+            # if interruptions allowed, we should interrupt the current task and cancel it
+            self.should_interrupt = True
+            if self.current_task and not self.current_task.done():
+                print(f"Cancelling existing task for session {self.session_id}")
+                self.current_task.cancel()
+                try:
+                    await asyncio.wait_for(self.current_task, timeout=0.5)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                
+        else:
+            # if interruptions not allowed, we should ignore the new audio chunks if we are currently responding
+            if self.is_responding:
+                return
+        
+        processing_id = time.time()  # Use timestamp as unique ID
+        self.current_processing_id = processing_id
+        self.is_responding = True
+        self.should_interrupt = False
+        
+        # Create a new task for the thread processing
+        self.current_task = asyncio.create_task(
+            asyncio.to_thread(
+                self._process_input_in_thread, 
+                audio_chunks, 
+                transcript,
+                processing_id
+            ),
+            name=f"process_thread_{self.session_id}"
+        )
+        
+        # Mark the queue task as done
+        if audio_chunks:
+            self.session.input_speech_queue.task_done()
+        elif transcript:
+            self.session.input_text_queue.task_done()
 
-    def _process_speech_in_thread(self, audio_chunks: List[np.ndarray], processing_id: float) -> None:
+    def _process_input_in_thread(self, audio_chunks: List[np.ndarray] | None, transcript: str | None, processing_id: float) -> None:
         """Process speech in a separate thread to avoid blocking the event loop"""
         # Create a new event loop for this thread
         loop = asyncio.new_event_loop()
@@ -154,7 +164,10 @@ class FastProcessor:
                 return
             
             # Run the async process_speech method in this thread's event loop
-            loop.run_until_complete(self.process_speech(audio_chunks, processing_id))
+            if audio_chunks:
+                loop.run_until_complete(self.process_speech(audio_chunks, processing_id))
+            elif transcript:
+                loop.run_until_complete(self.process_text(transcript, processing_id))
         except Exception as e:
             print(f"Error in thread processing: {e}")
             import traceback

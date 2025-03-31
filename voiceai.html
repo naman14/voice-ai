@@ -146,6 +146,16 @@
         <button id="startSpeakingBtn" disabled>Start Speaking</button>
         <button id="stopSpeakingBtn" disabled>Stop Speaking</button>
     </div>
+
+    <!-- Add text input area for direct transcripts -->
+    <div class="text-input-area" style="margin: 20px 0; padding: 10px; background-color: #f8f9fa; border-radius: 4px;">
+        <h3>Send Text Directly</h3>
+        <div style="display: flex;">
+            <textarea id="textTranscript" placeholder="Type your message here..." 
+                      style="flex: 1; padding: 10px; border-radius: 4px; border: 1px solid #ddd; min-height: 80px;"></textarea>
+        </div>
+        <button id="sendTextBtn" disabled style="margin-top: 10px;">Send Text</button>
+    </div>
     
     <div id="log"></div>
 
@@ -283,6 +293,8 @@
         const log = document.getElementById('log');
         const formatToggle = document.getElementById('formatToggle');
         const audioVisualizer = document.getElementById('audioVisualizer');
+        const textTranscript = document.getElementById('textTranscript');
+        const sendTextBtn = document.getElementById('sendTextBtn');
 
         function addLog(message) {
             const line = document.createElement('div');
@@ -304,6 +316,7 @@
                 startSpeakingBtn.disabled = false;
                 connectBtn.disabled = true;
                 formatToggle.disabled = true;
+                sendTextBtn.disabled = false;
                 addLog('Connected to server');
 
                 socket.send(JSON.stringify({
@@ -326,7 +339,8 @@
                 startSpeakingBtn.disabled = true;
                 stopSpeakingBtn.disabled = true;
                 connectBtn.disabled = false;
-                formatToggle.disabled = false; // Re-enable format toggle after disconnection
+                formatToggle.disabled = false;
+                sendTextBtn.disabled = true;
                 stopRecording();
                 addLog('Disconnected from server');
                 if (audioPlayer) {
@@ -565,10 +579,26 @@
             }
         }
 
+        // Function to send text transcript to the server
+        function sendTextTranscript() {
+            const text = textTranscript.value.trim();
+            if (text && socket && socket.readyState === WebSocket.OPEN) {
+                // Send the transcript message in the format expected by the server
+                socket.send(JSON.stringify({
+                    type: "transcript",
+                    text: text
+                }));
+                
+                addLog(`Sent text: ${text}`);
+                textTranscript.value = ''; // Clear the input field
+            }
+        }
+
         // Event listeners
         connectBtn.addEventListener('click', connect);
         startSpeakingBtn.addEventListener('click', startRecording);
         stopSpeakingBtn.addEventListener('click', stopRecording);
+        sendTextBtn.addEventListener('click', sendTextTranscript);
         
         formatToggle.addEventListener('change', function() {
             audioFormat = this.checked ? "opus" : "pcm";
@@ -582,6 +612,14 @@
             document.getElementById('formatDescription').textContent = 
                 "(Opus codec not available in this browser, using PCM)";
         }
+
+        // Add keyboard shortcut (Enter key) to send text
+        textTranscript.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault(); // Prevent default to avoid newline
+                sendTextTranscript();
+            }
+        });
 
         // Initialize audio on page load
         initAudio().catch(error => addLog('Error initializing audio: ' + error.message));
