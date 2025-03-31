@@ -39,6 +39,7 @@ class AudioSession:
         self.websocket: Optional[WebSocket] = None
         self.processor = None
         self.allow_interruptions = False
+        self.use_vad = True
         self.audio_format = "pcm"  # Default to PCM
         
          # Processing queue for speech segments
@@ -244,6 +245,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
         if "allowInterruptions" in config and config["allowInterruptions"]:
             session.allow_interruptions = True
+
+        if "useVAD" in config and config["useVAD"] == False:
+            session.use_vad = False
+        else:
+            session.use_vad = True
             
         # Set audio format if specified
         if "format" in config and config["format"] == "opus":

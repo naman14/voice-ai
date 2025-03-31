@@ -328,7 +328,8 @@
                     rate: 1.0,
                     language: "en",
                     allowInterruptions: true,
-                    format: audioFormat
+                    format: audioFormat,
+                    useVAD: true
                 }));
             };
 
@@ -396,6 +397,15 @@
                 stopSpeakingBtn.disabled = false;
                 speechStatus.textContent = 'Speaking';
                 speechStatus.className = 'status speaking';
+                
+                // Send speech_start event to server
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: "speech_start"
+                    }));
+                    addLog('Sent speech_start event to server');
+                }
+                
                 addLog(`Started recording using ${audioFormat} format`);
                 
             } catch (error) {
@@ -533,6 +543,14 @@
 
         function stopRecording() {
             if (isRecording) {
+                // Send speech_end event to server
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: "speech_end"
+                    }));
+                    addLog('Sent speech_end event to server');
+                }
+                
                 if (audioFormat === "opus" && opusRecorder) {
                     opusRecorder.stop();
                     opusRecorder = null;

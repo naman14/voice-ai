@@ -25,6 +25,7 @@ class FastProcessor:
         self.is_responding = False
         self.current_turn_id = 0
         self.current_metrics = None
+        self.use_vad = session.use_vad
         self.metrics = []
         self.allow_interruptions = allow_interruptions
 
@@ -34,6 +35,8 @@ class FastProcessor:
         self.current_task = None
         self.should_interrupt = False
     
+        # For non-VAD mode, we need to store audio chunks
+        self.current_audio_chunks = []
 
         # Lazy import services only when FastProcessor is actually used
         from voiceai.stt.stt import stt_instance
@@ -52,31 +55,69 @@ class FastProcessor:
 
         self.chat_tts_stream = False
         
-        self.speech_detector = AudioSpeechDetector(
-            sample_rate=16000,
-            energy_threshold=0.15,
-            min_speech_duration=0.4,
-            max_silence_duration=0.5,
-            max_recording_duration=10.0,
-            debug=False
-        )
+        if self.use_vad:
+            self.speech_detector = AudioSpeechDetector(
+                sample_rate=16000,
+                energy_threshold=0.15,
+                min_speech_duration=0.4,
+                max_silence_duration=0.5,
+                max_recording_duration=10.0,
+                debug=False
+            )
 
         # create metrics
         self.current_metrics = metrics_manager.create_metrics(self.session_id, self.current_turn_id)
+
+    async def receive_raw_audio(self, binary_data: bytes) -> None:
+        """Process incoming raw audio data"""
+        if len(binary_data) == 0:
+            return
+        
+        session = self.session
+        
+        # Handle Opus decoding if needed
+        if session.audio_format == "opus" and session.opus_stream_inbound:
+            # Append bytes to the Opus stream
+            session.opus_stream_inbound.append_bytes(binary_data)
+            
+            # Read decoded PCM data
+            pcm_data = session.opus_stream_inbound.read_pcm()
+            if pcm_data is not None and len(pcm_data) > 0:
+                # Convert to int16
+                pcm_int16 = (pcm_data * 32767).astype(np.int16)
+                
+                # Resample from 24kHz to 16kHz
+                resampled_audio = signal.resample_poly(pcm_int16, 2, 3)  # 24000 * (2/3) = 16000
+                
+                # Convert back to bytes
+                pcm_bytes = resampled_audio.astype(np.int16).tobytes()
+                
+                # Process the PCM data
+                await self.receive_audio_data(pcm_bytes)
+        else:
+            # For PCM, pass directly to the audio data processor
+            await self.receive_audio_data(binary_data)
 
     async def receive_audio_data(self, binary_data: bytes) -> None:
         """Process incoming audio data and add to speech detector"""
         if len(binary_data) > 0:
             audio_data = np.frombuffer(binary_data, dtype=np.int16)
-            detection_result = self.speech_detector.add_audio_chunk(audio_data)
             
-            if detection_result['action'] == 'process':
-                print("New speech segment detected")
+            if self.use_vad:
+                # Use VAD to detect speech segments
+                detection_result = self.speech_detector.add_audio_chunk(audio_data)
                 
-                audio_chunks = detection_result.get('audio_chunks', [])
-                
-                # Put the detected speech in the queue for processing
-                self.session.input_speech_queue.put(audio_chunks)
+                if detection_result['action'] == 'process':
+                    print("New speech segment detected")
+                    
+                    audio_chunks = detection_result.get('audio_chunks', [])
+                    
+                    # Put the detected speech in the queue for processing
+                    self.session.input_speech_queue.put(audio_chunks)
+            else:
+                # In non-VAD mode, just collect audio chunks when speaking
+                if self.is_speaking:
+                    self.current_audio_chunks.append(audio_data)
 
     async def receive_transcript(self, text: str) -> None:
         """Handle direct transcript input"""
@@ -356,9 +397,19 @@ class FastProcessor:
         """Handle client control messages"""
         if message_type == "speech_start":
             self.is_speaking = True
-            self.audio_chunks = []
+            # Clear audio chunks when starting a new speech segment in non-VAD mode
+            if not self.use_vad:
+                self.current_audio_chunks = []
         elif message_type == "speech_end":
             self.is_speaking = False
+            
+            # In non-VAD mode, process collected audio chunks when speech ends
+            if not self.use_vad and self.current_audio_chunks:
+                print("Processing collected audio chunks in non-VAD mode")
+                # Put the collected chunks in the queue for processing
+                self.session.input_speech_queue.put(self.current_audio_chunks)
+                # Clear the chunks after queuing
+                self.current_audio_chunks = []
 
     async def send_message(self, message: Any) -> None:
         """Send a message to the client via the outbound queue"""
@@ -439,33 +490,3 @@ class FastProcessor:
                 "session_id": self.session_id
             }
             await self.send_message(data)
-
-    async def receive_raw_audio(self, binary_data: bytes) -> None:
-        """Process incoming raw audio data"""
-        if len(binary_data) == 0:
-            return
-        
-        session = self.session
-        
-        # Handle Opus decoding if needed
-        if session.audio_format == "opus" and session.opus_stream_inbound:
-            # Append bytes to the Opus stream
-            session.opus_stream_inbound.append_bytes(binary_data)
-            
-            # Read decoded PCM data
-            pcm_data = session.opus_stream_inbound.read_pcm()
-            if pcm_data is not None and len(pcm_data) > 0:
-                # Convert to int16
-                pcm_int16 = (pcm_data * 32767).astype(np.int16)
-                
-                # Resample from 24kHz to 16kHz
-                resampled_audio = signal.resample_poly(pcm_int16, 2, 3)  # 24000 * (2/3) = 16000
-                
-                # Convert back to bytes
-                pcm_bytes = resampled_audio.astype(np.int16).tobytes()
-                
-                # Process the PCM data
-                await self.receive_audio_data(pcm_bytes)
-        else:
-            # For PCM, pass directly to the audio data processor
-            await self.receive_audio_data(binary_data)
