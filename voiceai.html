@@ -174,7 +174,9 @@
             
             async initializeDecoder() {
                 try {
-                    this.opusDecoder = new window["ogg-opus-decoder"].OggOpusDecoder();
+                    this.opusDecoder = new window["ogg-opus-decoder"].OggOpusDecoder({
+                        sampleRate: 24000
+                    });
                     await this.opusDecoder.ready;
                     console.log("Ogg Opus decoder initialized");
                 } catch (e) {
@@ -226,9 +228,8 @@
                 try {
 
                     if (format === "opus") {
-                         // Decode Opus to PCM
-                         const opusData = new Uint8Array(atob(data).split('').map(c => c.charCodeAt(0)));
-                        const { channelData, samplesDecoded } = await this.decodeOpusData(opusData);
+                        const arrayBuffer = await data.arrayBuffer();
+                        const { channelData, samplesDecoded } = await audioPlayer.decodeOpusData(arrayBuffer);
                         if (samplesDecoded > 0) {
                             this.scheduleAudioPlayback(channelData[0]);
                         }

@@ -20,7 +20,6 @@ class FastProcessor:
     def __init__(self, session_id: str, session: AudioSession, config_id: str, allow_interruptions: bool = False):
         self.session_id = session_id
         self.config_id = config_id
-        self.audio_chunks: List[np.ndarray] = []
         self.is_speaking = False
         self.is_responding = False
         self.current_turn_id = 0
@@ -114,6 +113,7 @@ class FastProcessor:
                     
                     # Put the detected speech in the queue for processing
                     self.session.input_speech_queue.put(audio_chunks)
+                    # save_audio_chunks(audio_chunks, self.session_id, self.current_turn_id)
             else:
                 # In non-VAD mode, just collect audio chunks when speaking
                 if self.is_speaking:
@@ -444,38 +444,41 @@ class FastProcessor:
             print("No session found, returning")
             return
 
+        # Resample to 24kHz if needed
+        if sample_rate != 24000:
+            num_samples = int(len(chunk) * 24000 / sample_rate)
+            chunk = signal.resample(chunk, num_samples)
+
         if session.audio_format == "opus" and session.opus_stream_outbound:
             try:
-                # Convert to float32 numpy array if needed
-                if not isinstance(chunk, np.ndarray):
+                # For pcm_f32le format, the input is already float32 in [-1, 1] range
+                if isinstance(chunk, bytes):
                     chunk = np.frombuffer(chunk, dtype=np.float32)
                 
-                # Ensure the chunk is in the correct format for Opus encoding
-                if chunk.dtype != np.float32:
-                    chunk = chunk.astype(np.float32) / 32768.0  # Convert from int16 to float32
-                
-                # Process the audio in 80ms frames (1920 samples at 24kHz)
-                FRAME_SIZE = 1920  # 80ms at 24kHz
-                
+                # Ensure we're working with float32 array
+                chunk = chunk.astype(np.float32)
+
+                # Process in 80ms frames (1920 samples at 24kHz)
+                FRAME_SIZE = 1920
+
+                chunk = chunk.flatten()
+
                 for i in range(0, len(chunk), FRAME_SIZE):
                     frame = chunk[i:i + FRAME_SIZE]
                     
-                    # Pad the last frame if necessary
                     if len(frame) < FRAME_SIZE:
                         frame = np.pad(frame, (0, FRAME_SIZE - len(frame)), 'constant')
-                    
-                    # Append PCM frame to the Opus stream
+
                     session.opus_stream_outbound.append_pcm(frame)
-                
-                # Read encoded Opus data
-                opus_data = session.opus_stream_outbound.read_bytes()
-                
-                if opus_data:
-                    # Send as binary WebSocket message via the outbound queue
-                    await self.send_message(opus_data)
-                
+                    opus_data = session.opus_stream_outbound.read_bytes()
+                    
+                    if opus_data:
+                        await self.send_message(opus_data)
+            
             except Exception as e:
                 print(f"Error in Opus processing: {str(e)}")
+                import traceback
+                traceback.print_exc()
         else:
             # PCM handling
             data = {
