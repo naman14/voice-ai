@@ -77,17 +77,21 @@ class FastProcessor:
         # Handle Opus decoding if needed
         if session.audio_format == "opus" and session.opus_decoder:
             # Decode Opus data to PCM
-            pcm_data = session.opus_decoder.decode(binary_data)
+            decoded_output = session.opus_decoder.decode(binary_data)
             
-            if len(pcm_data) > 0:
-                # Resample from 24kHz to 16kHz
-                resampled_audio = signal.resample_poly(pcm_data, 2, 3)  # 24000 * (2/3) = 16000
-                
-                # Convert back to bytes
-                pcm_bytes = resampled_audio.astype(np.int16).tobytes()
-                
-                # Process the PCM data
-                await self.receive_audio_data(pcm_bytes)
+            if decoded_output is None:
+                print("Opus decoder returned no valid audio data.")
+                return
+            
+            # Resample from 24kHz to 16kHz
+            # Now we are sure pcm_data is a non-empty numpy array
+            resampled_audio = signal.resample_poly(decoded_output, 2, 3)  # 24000 * (2/3) = 16000
+            
+            # Convert back to bytes
+            pcm_bytes = resampled_audio.astype(np.int16).tobytes()
+            
+            # Process the PCM data
+            await self.receive_audio_data(pcm_bytes)
         else:
             # For PCM, pass directly to the audio data processor
             await self.receive_audio_data(binary_data)

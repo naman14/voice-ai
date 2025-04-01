@@ -28,4 +28,8 @@ class OpusDecoder:
             return np.array([], dtype=np.int16)
             
         pcm_chunk = self.decoder.decode(bytes(opus_data), self.frame_size)
-        return pcm_chunk
+        if(type(pcm_chunk) == bytes):
+            pcm_chunk = np.frombuffer(pcm_chunk, dtype=np.int16)
+            return pcm_chunk
+        else:
+            return None
