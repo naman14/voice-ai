@@ -118,11 +118,11 @@
         }
     </style>
    <!-- Opus recorder -->
-   <script src="https://cdn.jsdelivr.net/npm/opus-recorder@latest/dist/recorder.min.js"></script>
-   <script src="https://cdn.jsdelivr.net/npm/opus-recorder@latest/dist/encoderWorker.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/symblai/opus-encdec@master/dist/recorder.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/symblai/opus-encdec@master/dist/encoderWorker.min.js"></script>
 
    <!-- Opus decoder -->
-   <script src="https://cdn.jsdelivr.net/npm/ogg-opus-decoder/dist/ogg-opus-decoder.min.js"></script>
+   <script src="https://cdn.jsdelivr.net/npm/opus-decoder/dist/opus-decoder.min.js"></script>
 </head>
 <body>
     <h1>voiceai Fun</h1>
@@ -174,7 +174,7 @@
             
             async initializeDecoder() {
                 try {
-                    this.opusDecoder = new window["ogg-opus-decoder"].OggOpusDecoder({
+                    this.opusDecoder = new window["opus-decoder"].OpusDecoder({
                         sampleRate: 24000
                     });
                     await this.opusDecoder.ready;
@@ -193,7 +193,7 @@
                     }
                 }
                 
-                return await this.opusDecoder.decode(new Uint8Array(opusData));
+                return await this.opusDecoder.decodeFrame(new Uint8Array(opusData));
             }
             
             scheduleAudioPlayback(newAudioData) {
@@ -439,13 +439,13 @@
                 
                 // Create Opus recorder
                 opusRecorder = new Recorder({
-                    encoderPath: "https://cdn.jsdelivr.net/npm/opus-recorder@latest/dist/encoderWorker.min.js",
                     streamPages: true,
                     encoderApplication: 2049,
                     encoderFrameSize: 80, // milliseconds
                     encoderSampleRate: 24000,
                     maxFramesPerPage: 1,
                     numberOfChannels: 1,
+                    rawOpus: true
                 });
 
                 opusRecorder.ondataavailable = async (arrayBuffer) => {
@@ -642,7 +642,7 @@
         });
 
         // Check for Opus support and disable toggle if not available
-        if (!window.Recorder || !window["ogg-opus-decoder"]) {
+        if (!window.Recorder || !window["opus-decoder"]) {
             formatToggle.disabled = true;
             formatToggle.checked = false;
             document.getElementById('formatDescription').textContent = 

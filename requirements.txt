@@ -38,5 +38,5 @@ vllm==0.6.4
 #elevenlabs
 
 # For Opus codec support
-sphn
 scipy
+opuslib

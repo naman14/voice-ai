@@ -75,18 +75,13 @@ class FastProcessor:
         session = self.session
         
         # Handle Opus decoding if needed
-        if session.audio_format == "opus" and session.opus_stream_inbound:
-            # Append bytes to the Opus stream
-            session.opus_stream_inbound.append_bytes(binary_data)
+        if session.audio_format == "opus" and session.opus_decoder:
+            # Decode Opus data to PCM
+            pcm_data = session.opus_decoder.decode(binary_data)
             
-            # Read decoded PCM data
-            pcm_data = session.opus_stream_inbound.read_pcm()
-            if pcm_data is not None and len(pcm_data) > 0:
-                # Convert to int16
-                pcm_int16 = (pcm_data * 32767).astype(np.int16)
-                
+            if len(pcm_data) > 0:
                 # Resample from 24kHz to 16kHz
-                resampled_audio = signal.resample_poly(pcm_int16, 2, 3)  # 24000 * (2/3) = 16000
+                resampled_audio = signal.resample_poly(pcm_data, 2, 3)  # 24000 * (2/3) = 16000
                 
                 # Convert back to bytes
                 pcm_bytes = resampled_audio.astype(np.int16).tobytes()
@@ -449,7 +444,7 @@ class FastProcessor:
             num_samples = int(len(chunk) * 24000 / sample_rate)
             chunk = signal.resample(chunk, num_samples)
 
-        if session.audio_format == "opus" and session.opus_stream_outbound:
+        if session.audio_format == "opus" and session.opus_encoder:
             try:
                 # For pcm_f32le format, the input is already float32 in [-1, 1] range
                 if isinstance(chunk, bytes):
@@ -469,8 +464,7 @@ class FastProcessor:
                     if len(frame) < FRAME_SIZE:
                         frame = np.pad(frame, (0, FRAME_SIZE - len(frame)), 'constant')
 
-                    session.opus_stream_outbound.append_pcm(frame)
-                    opus_data = session.opus_stream_outbound.read_bytes()
+                    opus_data = session.opus_encoder.encode(frame)
                     
                     if opus_data:
                         data = {

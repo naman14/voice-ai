@@ -10,12 +10,16 @@ from dotenv import load_dotenv
 import os
 import numpy as np
 import asyncio
-import queue  # Add this import for simple queues
+import queue
 
 try:
-    import sphn
+    import opuslib
+    from voiceai.utils.opus_utils import OpusEncoder, OpusDecoder
     OPUS_AVAILABLE = True
-except ImportError:
+except Exception as e:
+    print("Error importing opuslib")
+    print(e)
+    print("opuslib not found, Opus will not be available")
     OPUS_AVAILABLE = False
 
 load_dotenv()
@@ -48,12 +52,12 @@ class AudioSession:
         # Outbound queue for messages to the client
         self.outbound_queue = queue.Queue()
         
-        # Initialize Opus streams if available
-        self.opus_stream_inbound = None
-        self.opus_stream_outbound = None
+        # Initialize Opus encoder/decoder if available
+        self.opus_encoder = None
+        self.opus_decoder = None
         if OPUS_AVAILABLE:
-            self.opus_stream_inbound = sphn.OpusStreamReader(24000) 
-            self.opus_stream_outbound = sphn.OpusStreamWriter(24000)
+            self.opus_encoder = OpusEncoder(24000, 1)
+            self.opus_decoder = OpusDecoder(24000, 1)
         
         # Tasks for the parallel loops
         self.receive_task = None
@@ -109,10 +113,10 @@ class ConnectionManager:
             
             # Clean up Opus streams if needed
             if OPUS_AVAILABLE:
-                if session.opus_stream_inbound:
-                    session.opus_stream_inbound = None
-                if session.opus_stream_outbound:
-                    session.opus_stream_outbound = None
+                if session.opus_decoder:
+                    session.opus_decoder = None
+                if session.opus_encoder:
+                    session.opus_encoder = None
             
             # Remove the session
             del self.active_sessions[session_id]
