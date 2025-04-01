@@ -119,10 +119,6 @@
     </style>
    <!-- Opus recorder -->
     <script src="https://cdn.jsdelivr.net/gh/naman14/opus-encdec@master/dist/recorder.min.js"></script>
-    <!-- <script src="https://cdn.jsdelivr.net/gh/mmig/opus-encdec@master/src/encoderWorker.js"></script> -->
-
-    <!-- <script src="https://cdn.jsdelivr.net/gh/mmig/opus-encdec@master/dist/libopus-encoder.min.js"></script> -->
-    <!-- <script src="https://cdn.jsdelivr.net/gh/mmig/opus-encdec@master/dist/libopus-decoder.min.js"></script> -->
    <!-- Opus decoder -->
    <script src="https://cdn.jsdelivr.net/npm/opus-decoder/dist/opus-decoder.min.js"></script>
 </head>
@@ -197,7 +193,6 @@
                 }
 
                 let decodedData = await this.opusDecoder.decodeFrame(new Uint8Array(opusData));
-                await this.opusDecoder.reset();
                 return decodedData;
             }
             
