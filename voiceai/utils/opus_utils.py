@@ -12,7 +12,7 @@ class OpusEncoder:
         """Encode PCM data to Opus frames"""
         if len(pcm_data) == 0:
             return b''
-        opus_frame = self.encoder.encode(pcm_data.tobytes(), self.frame_size)
+        opus_frame = self.encoder.encode_float(pcm_data.tobytes(), self.frame_size)
         return opus_frame
 
 class OpusDecoder:
