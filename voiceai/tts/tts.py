@@ -39,7 +39,7 @@ class TTS:
         else:
             # from .xtts_pool import XTTSPool
             # from .xtts import XTTS
-            from .orphues import OrpheusTTS
+            from .orphues_vllm import OrpheusTTS
             # self.tts = XTTS()
             self.tts = OrpheusTTS()
 
