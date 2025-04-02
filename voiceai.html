@@ -315,7 +315,7 @@
             audioFormat = formatToggle.checked ? "opus" : "pcm";
             addLog(`Using audio format: ${audioFormat}`);
             
-            socket = new WebSocket(`ws://localhost:8000/ws/${sessionId}`);
+            socket = new WebSocket(`ws://34.93.194.16:8000/ws/${sessionId}`);
 
             socket.onopen = () => {
                 isConnected = true;

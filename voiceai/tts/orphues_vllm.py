@@ -83,11 +83,7 @@ class OrpheusTTS(BaseTTS):
         
         combined_audio = b''.join(audio_chunks)
         
-        return TTSChunk(
-            audio=combined_audio,
-            sample_rate=24000,  # SNAC model uses 24kHz
-            is_final=True
-        )
+        return TTSChunk(combined_audio, "pcm", 24000)
         
     async def generate_speech_stream(self, text: str, language: str, voice_id: Optional[str] = None, voice_samples: Optional[str] = None, speed: float = 1.0) -> AsyncGenerator[TTSChunk, None]:
         """Generate speech in streaming mode using local TTS model"""
@@ -191,12 +187,7 @@ class OrphuesTokensDecoder:
                 audio_bytes = self._convert_to_audio(buffer_to_proc, self.count)
                 if audio_bytes is not None:
                     # Create a TTSChunk with the audio data
-                    chunk = TTSChunk(
-                        audio=audio_bytes,
-                        sample_rate=24000,  # SNAC model uses 24kHz
-                        is_final=False
-                    )
-                    return chunk
+                    return TTSChunk(audio_bytes, "pcm", 24000)
         
         return None  # Return None if no audio is ready yet
     
