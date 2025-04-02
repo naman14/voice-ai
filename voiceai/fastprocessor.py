@@ -67,6 +67,16 @@ class FastProcessor:
         # create metrics
         self.current_metrics = metrics_manager.create_metrics(self.session_id, self.current_turn_id)
 
+        # Add buffer for Opus encoding
+        # Important: This buffer is required to elimiate artifacts between audio chunks output from TTS
+        # Since opus is a strictly fixed frame size codec, we have to divide chunks into a number of frames
+        # If last chunk is not a full frame, then we will have to pad the last chunk with zeros, which will introduce artifacts
+        # To solve this, we hold back the last frame instead of padding it and prepend it to the next chunk
+        self.opus_buffer = np.array([], dtype=np.float32)
+
+        # 80ms frames (1920 samples at 24kHz)
+        self.OPUS_FRAME_SIZE = 1920
+
     async def receive_raw_audio(self, binary_data: bytes) -> None:
         """Process incoming raw audio data"""
         if len(binary_data) == 0:
@@ -360,6 +370,8 @@ class FastProcessor:
             # Check for interruption before starting
             if self.should_interrupt or self.current_processing_id != processing_id:
                 print("TTS streaming interrupted before starting")
+                # Clear opus buffer on interruption
+                self.opus_buffer = np.array([], dtype=np.float32)
                 return
             
             self.current_metrics.tts_start_time = time.time()
@@ -381,13 +393,30 @@ class FastProcessor:
                 
             # Only send end message if not interrupted
             if not self.should_interrupt and self.current_processing_id == processing_id:
+                # If there's leftover data in the buffer at the end of a stream, 
+                # we should encode and send it with padding
+                if len(self.opus_buffer) > 0 and hasattr(self.session, 'opus_encoder') and self.session.opus_encoder:
+                    # Pad the remaining buffer to a full frame
+                    padded_frame = np.pad(self.opus_buffer, (0, self.OPUS_FRAME_SIZE - len(self.opus_buffer)), 'constant')
+                    opus_data = self.session.opus_encoder.encode(padded_frame)
+                    
+                    if opus_data:
+                        await self._send_audio_stream_data(opus_data, "opus", 24000)
+                    
+                    # Clear the buffer
+                    self.opus_buffer = np.array([], dtype=np.float32)
+                
                 await self.send_message({
                     "type": "audio_stream_end",
                     "session_id": self.session_id
                 })
         except asyncio.CancelledError:
             print("TTS streaming was cancelled")
+            # Clear opus buffer on cancellation
+            self.opus_buffer = np.array([], dtype=np.float32)
         except Exception as e:
+            # Clear opus buffer on error
+            self.opus_buffer = np.array([], dtype=np.float32)
             if not self.should_interrupt and self.current_processing_id == processing_id:
                 print(f"Error in TTS streaming: {e}")
                 await self.send_error(str(e))
@@ -429,6 +458,8 @@ class FastProcessor:
     async def cleanup(self):
         """Clean up any resources"""
         self.should_interrupt = True
+        # Clear opus buffer on cleanup
+        self.opus_buffer = np.array([], dtype=np.float32)
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
             try:
@@ -443,11 +474,6 @@ class FastProcessor:
             print("No session found, returning")
             return
 
-        # Resample to 24kHz if needed
-        if sample_rate != 24000:
-            num_samples = int(len(chunk) * 24000 / sample_rate)
-            chunk = signal.resample(chunk, num_samples)
-
         if session.audio_format == "opus" and session.opus_encoder:
             try:
                 # For pcm_f32le format, the input is already float32 in [-1, 1] range
@@ -457,32 +483,27 @@ class FastProcessor:
                 # Ensure we're working with float32 array
                 chunk = chunk.astype(np.float32)
 
-                # Process in 80ms frames (1920 samples at 24kHz)
-                FRAME_SIZE = 1920
-
                 chunk = chunk.flatten()
+                
+                # Prepend any leftover samples from previous chunk
+                if len(self.opus_buffer) > 0:
+                    chunk = np.concatenate([self.opus_buffer, chunk])
+                    self.opus_buffer = np.array([], dtype=np.float32)
 
-                for i in range(0, len(chunk), FRAME_SIZE):
-                    frame = chunk[i:i + FRAME_SIZE]
-                    
-                    if len(frame) < FRAME_SIZE:
-                        frame = np.pad(frame, (0, FRAME_SIZE - len(frame)), 'constant')
-
+                # Process full frames
+                full_frames = len(chunk) // self.OPUS_FRAME_SIZE
+                
+                for i in range(full_frames):
+                    frame = chunk[i * self.OPUS_FRAME_SIZE:(i + 1) * self.OPUS_FRAME_SIZE]
                     opus_data = session.opus_encoder.encode(frame)
                     
                     if opus_data:
-                        data = {
-                            "type": "audio_stream",
-                            "data": {
-                                "type": "audio_chunk",
-                                "chunk": base64.b64encode(opus_data).decode("utf-8"),
-                                "format": "opus",
-                                "sample_rate": 24000,
-                                "timestamp": time.time()
-                            },
-                            "session_id": self.session_id
-                        }
-                        await self.send_message(data)
+                        await self._send_audio_stream_data(opus_data, "opus", 24000)
+                
+                # Store leftover samples for next chunk
+                leftover_start = full_frames * self.OPUS_FRAME_SIZE
+                if leftover_start < len(chunk):
+                    self.opus_buffer = chunk[leftover_start:]
             
             except Exception as e:
                 print(f"Error in Opus processing: {str(e)}")
@@ -490,15 +511,20 @@ class FastProcessor:
                 traceback.print_exc()
         else:
             # PCM handling
-            data = {
-                "type": "audio_stream",
-                "data": {
-                    "type": "audio_chunk",
-                    "chunk": base64.b64encode(chunk).decode("utf-8"),
-                    "format": format,
-                    "sample_rate": sample_rate,
-                    "timestamp": time.time()
-                },
-                "session_id": self.session_id
-            }
-            await self.send_message(data)
+            await self._send_audio_stream_data(chunk, format, sample_rate)
+
+
+    async def _send_audio_stream_data(self, chunk: bytes, format: str, sample_rate: int) -> None:
+        """Send audio stream data to the client"""
+        data = {
+            "type": "audio_stream",
+            "data": {
+                "type": "audio_chunk",
+                "chunk": base64.b64encode(chunk).decode("utf-8"),
+                "format": format,
+                "sample_rate": sample_rate,
+                "timestamp": time.time()
+            },
+            "session_id": self.session_id
+        }
+        await self.send_message(data)
