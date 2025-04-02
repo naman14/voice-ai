@@ -14,7 +14,7 @@ import base64
 import torchaudio
 import threading
 
-class LocalTTSPool(BaseTTS):
+class XTTSPool(BaseTTS):
     def __init__(self, max_gpu_utilization: float = 0.2):
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.models: List[Tuple[Xtts, threading.Lock, int]] = []

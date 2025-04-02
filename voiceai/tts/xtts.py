@@ -15,7 +15,7 @@ import base64
 import torchaudio
 import threading
 
-class LocalTTS(BaseTTS):
+class XTTS(BaseTTS):
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_built() else "cpu"
         self.model = None
