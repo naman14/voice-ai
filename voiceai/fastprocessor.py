@@ -57,7 +57,7 @@ class FastProcessor:
         if self.use_vad:
             self.speech_detector = AudioSpeechDetector(
                 sample_rate=16000,
-                energy_threshold=0.15,
+                energy_threshold=self.session.vad_threshold,
                 min_speech_duration=0.4,
                 max_silence_duration=0.5,
                 max_recording_duration=10.0,
