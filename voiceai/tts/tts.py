@@ -38,8 +38,10 @@ class TTS:
                 raise ValueError(f"Unsupported external TTS provider: {self.provider}")
         else:
             # from .xtts_pool import XTTSPool
-            from .xtts import XTTS
-            self.tts = XTTS()
+            # from .xtts import XTTS
+            from .orphues import OrpheusTTS
+            # self.tts = XTTS()
+            self.tts = OrpheusTTS()
 
         self.setup()
 

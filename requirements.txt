@@ -40,3 +40,6 @@ vllm==0.6.4
 # For Opus codec support
 scipy
 opuslib
+
+# orphues
+snac
